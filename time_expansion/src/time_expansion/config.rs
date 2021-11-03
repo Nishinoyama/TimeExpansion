@@ -5,6 +5,7 @@ use std::option::Option::Some;
 use std::process::exit;
 use regex::Regex;
 use crate::time_expansion::config::ExpansionMethods::{Broadside, SkewedLoad};
+use crate::time_expansion::ff_definition::FFDefinition;
 
 #[derive(Clone, Default)]
 pub struct ExpansionConfig {
@@ -17,7 +18,7 @@ pub struct ExpansionConfig {
 
     use_primary_io: bool,
     equivalent_check: String,
-    ff_definitions: Vec<String>,
+    ff_definitions: Vec<FFDefinition>,
 
     inv_type: String,
     inv_input: String,
@@ -43,46 +44,42 @@ impl ExpansionConfig {
         let clock_pins_regex = Regex::new(r"\s*clock-pins\s+(.+)\s*").unwrap();
         let use_primary_io_regex = Regex::new(r"\s*use-primary-io\s+(.+)\s*").unwrap();
         let equivalent_check_regex = Regex::new(r"\s*equivalent-check\s+(.+)\s*").unwrap();
-        let ff_definitions_regex = Regex::new(r"\s*ff\s+([^{]+).*").unwrap();
-        let inv_definitions_regex = Regex::new(r"\s*inv\s+([^{]+).*").unwrap();
+        let ff_definitions_regex = Regex::new(r"\s*ff\s+([^{]+)\s*\{.*").unwrap();
+        let inv_definitions_regex = Regex::new(r"\s*inv\s+([^{]+)\s*\{.*").unwrap();
         let empty_line_regex = Regex::new(r"^\s*$").unwrap();
 
         let mut line_iter = lines.iter().enumerate();
-        loop {
-            if let Some((i, line)) = line_iter.next() {
-                if let Some(cap) = expansion_method_regex.captures(line) {
-                    config.expand_method = ExpansionMethods::from_string(&cap.get(1).unwrap().as_str()).unwrap();
-                } else if let Some(cap) = input_verilog_regex.captures(line) {
-                    config.input_file = cap.get(1).unwrap().as_str().to_string();
-                } else if let Some(cap) = output_verilog_regex.captures(line) {
-                    config.output_file = cap.get(1).unwrap().as_str().to_string();
-                } else if let Some(cap) = top_module_regex.captures(line) {
-                    config.top_module = cap.get(1).unwrap().as_str().to_string();
-                } else if let Some(cap) = clock_pins_regex.captures(line) {
-                    cap.get(1).unwrap().as_str().to_string().split(",").for_each(|pin| {
-                        config.clock_pins.push(pin.trim().to_string())
-                    });
-                } else if let Some(cap) = use_primary_io_regex.captures(line) {
-                    config.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
-                } else if let Some(cap) = equivalent_check_regex.captures(line) {
-                    config.equivalent_check = cap.get(1).unwrap().as_str().to_string();
-                } else if let Some(_cap) = ff_definitions_regex.captures(line) {
-                    // ff define
-                    while !line_iter.next().unwrap().1.contains("}") {
-                    }
-                } else if let Some(_cap) = inv_definitions_regex.captures(line) {
-                    // inv define
-                    while !line_iter.next().unwrap().1.contains("}") {
-                    }
-                } else if empty_line_regex.is_match(line) {
-                } else {
-                    eprintln!("Error: Undefined Option");
-                    eprintln!("Syntax error at line {}", i+1);
-                    eprintln!("{}", line);
-                    panic!("Syntax Error at line {}", i+1);
+        while let Some((i, line)) = line_iter.next() {
+            if let Some(cap) = expansion_method_regex.captures(line) {
+                config.expand_method = ExpansionMethods::from_string(&cap.get(1).unwrap().as_str()).unwrap();
+            } else if let Some(cap) = input_verilog_regex.captures(line) {
+                config.input_file = cap.get(1).unwrap().as_str().to_string();
+            } else if let Some(cap) = output_verilog_regex.captures(line) {
+                config.output_file = cap.get(1).unwrap().as_str().to_string();
+            } else if let Some(cap) = top_module_regex.captures(line) {
+                config.top_module = cap.get(1).unwrap().as_str().to_string();
+            } else if let Some(cap) = clock_pins_regex.captures(line) {
+                cap.get(1).unwrap().as_str().split(",").for_each(|pin| {
+                    config.clock_pins.push(pin.trim().to_string())
+                });
+            } else if let Some(cap) = use_primary_io_regex.captures(line) {
+                config.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
+            } else if let Some(cap) = equivalent_check_regex.captures(line) {
+                config.equivalent_check = cap.get(1).unwrap().as_str().to_string();
+            } else if let Some(cap) = ff_definitions_regex.captures(line) {
+                let mut ff_define = FFDefinition::from_file_iter(&mut line_iter);
+                ff_define.set_name(&cap.get(1).unwrap().as_str().trim().to_string());
+                config.ff_definitions.push(ff_define);
+            } else if let Some(_cap) = inv_definitions_regex.captures(line) {
+                // inv define
+                while !line_iter.next().unwrap().1.contains("}") {
                 }
+            } else if empty_line_regex.is_match(line) {
             } else {
-                break;
+                eprintln!("Error: Undefined Option");
+                eprintln!("Syntax error at line {}", i+1);
+                eprintln!("{}", line);
+                panic!("Syntax Error at line {}", i+1);
             }
         }
 
@@ -124,10 +121,11 @@ mod test {
     use std::fs::File;
     use crate::time_expansion::config::ExpansionConfig;
     use crate::time_expansion::config::ExpansionMethods::Broadside;
+    use crate::time_expansion::ff_definition::FFDefinition;
 
     #[test]
     fn expansion_config() {
-        let ec = ExpansionConfig::from_file("expansion.conf").unwrap();
+        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
         assert_eq!(ec.expand_method, Broadside);
         assert_eq!(ec.input_file, "b01_net.v");
         assert_eq!(ec.output_file, "b01_bs_net.v");
@@ -135,5 +133,28 @@ mod test {
         assert_eq!(ec.clock_pins, vec!["clock", "reset"]);
         assert_eq!(ec.equivalent_check, "str   NO   FLAG_reg/Q");
         assert!(!ec.use_primary_io);
+        assert_eq!(ec.ff_definitions, vec![
+            FFDefinition {
+                name: String::from("FD2S"), data_in:vec![String::from("D")],
+                data_out: vec![String::from("Q"), String::from("QN")],
+                control: vec![String::from("TI"), String::from("TE"),
+                              String::from("CP"), String::from("CD")],
+            },
+            FFDefinition {
+                name: String::from("FD2"), data_in:vec![String::from("D")],
+                data_out: vec![String::from("Q"), String::from("QN")],
+                control: vec![String::from("CP"), String::from("CD")],
+            },
+            FFDefinition {
+                name: String::from("FD1S"), data_in:vec![String::from("D")],
+                data_out: vec![String::from("Q"), String::from("QN")],
+                control: vec![String::from("TI"), String::from("TE"), String::from("CP")],
+            },
+            FFDefinition {
+                name: String::from("FD1"), data_in:vec![String::from("D")],
+                data_out: vec![String::from("Q"), String::from("QN")],
+                control: vec![String::from("CP")],
+            },
+        ]);
     }
 }
