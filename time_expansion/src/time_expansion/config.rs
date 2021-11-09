@@ -115,6 +115,11 @@ impl ExpansionConfig {
         config.verification()?;
         Ok(config)
     }
+
+    pub fn get_input_file(&self) -> &String {
+        &self.input_file
+    }
+
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
