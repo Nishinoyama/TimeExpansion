@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashMap};
 use crate::time_expansion::config::ExpansionConfig;
 use crate::verilog::ast::parser::Parser;
 use crate::verilog::ast::token::Lexer;
@@ -36,53 +37,61 @@ impl Verilog {
 #[derive(Clone, Debug, Default)]
 pub struct Module {
     name: String,
-    inputs: Vec<Signal>,
-    outputs: Vec<Signal>,
-    wires: Vec<Signal>,
+    inputs: HashMap<SignalRange, BTreeSet<String>>,
+    outputs: HashMap<SignalRange, BTreeSet<String>>,
+    wires: HashMap<SignalRange, BTreeSet<String>>,
     assigns: Vec<String>,
-    gates: Vec<Gate>,
+    gates: HashMap<String, Gate>,
 }
 
 impl Module {
     pub fn set_name(&mut self, name: String) {
         self.name = name
     }
-    pub fn push_input(&mut self, input: Signal) {
-        self.inputs.push(input);
+    pub fn push_input(&mut self, range: &SignalRange, input: String) {
+        if let Some(inputs) = self.inputs.get_mut(range) {
+            inputs.insert(input);
+        } else {
+            self.inputs.insert(range.clone(), vec![input].into_iter().collect());
+        }
     }
-    pub fn push_output(&mut self, output: Signal) {
-        self.outputs.push(output);
+    pub fn push_output(&mut self, range: &SignalRange, output: String) {
+        if let Some(outputs) = self.outputs.get_mut(range) {
+            outputs.insert(output);
+        } else {
+            self.outputs.insert(range.clone(), vec![output].into_iter().collect());
+        }
     }
-    pub fn push_wire(&mut self, wire: Signal) {
-        self.wires.push(wire);
+    pub fn push_wire(&mut self, range: &SignalRange, wire: String) {
+        if let Some(wires) = self.wires.get_mut(range) {
+            wires.insert(wire);
+        } else {
+            self.wires.insert(range.clone(), vec![wire].into_iter().collect());
+        }
     }
     pub fn push_assign(&mut self, assign: String) {
         self.assigns.push(assign);
     }
-    pub fn push_gate(&mut self, gate: Gate) {
-        self.gates.push(gate);
+    pub fn push_gate(&mut self, ident: String, gate: Gate) {
+        self.gates.insert(ident, gate);
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum Signal {
-    Multiple((String, String), String),
-    Single(String),
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub enum SignalRange {
+    Multiple((String, String)),
+    Single,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Gate {
     name: String,
-    identifier: String,
     ports: Vec<(String, String)>,
 }
 
 impl Gate {
     pub fn set_name(&mut self, name: String) {
         self.name = name;
-    }
-    pub fn set_identifier(&mut self, identifier: String) {
-        self.identifier = identifier;
     }
     pub fn push_port(&mut self, port: String, wire: String) {
         self.ports.push((port, wire));
