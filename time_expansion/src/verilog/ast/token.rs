@@ -7,6 +7,16 @@ pub enum Token {
     Number(String),
 }
 
+impl Token {
+    pub fn name_is(&self, cmp_name: &String) -> bool {
+        use crate::verilog::ast::token::Token::*;
+        match self {
+            Reserved(name) | Identifier(name) | Number(name) => name.eq(cmp_name),
+            _ => false
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Lexer<'a> {
     input: Chars<'a>,
