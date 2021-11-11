@@ -103,7 +103,7 @@ impl Lexer<'_> {
             .next()
     }
     fn consume_reserved_single_token(&mut self) -> Option<Token> {
-        let reserved = "()[]:;,=+&~^".chars();
+        let reserved = "()[]:;,.=+&~^".chars();
         let current = self.current().unwrap();
         reserved
             .into_iter()

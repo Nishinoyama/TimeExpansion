@@ -1,5 +1,5 @@
 use crate::verilog::ast::token::Token;
-use crate::verilog::verilog::{Module, Signal, Verilog};
+use crate::verilog::verilog::{Gate, Module, Signal, Verilog};
 
 #[derive(Clone, Debug)]
 pub struct Parser {
@@ -111,11 +111,10 @@ impl Parser {
     }
     /// ```regex
     /// statement := ( (input|output|wire) range? declarations |
-    ///            assign expressions
-    ///            identifier "(" "." identifier_at ")" ) ";"
+    ///                assign expressions |
+    ///                identifier identifier "(" gate_ports ")" ) ";"
     /// ```
     fn statement(&mut self, module: &mut Module) -> Result<Option<()>, String> {
-        println!("{:?}", self);
         if let Some(_) = self.consume_reserved_token("input")? {
             let range = self.range()?;
             self.declarations(&range)?
@@ -135,6 +134,13 @@ impl Parser {
             self.expressions()?
                 .into_iter()
                 .for_each(|s| module.push_assign(s));
+        } else if let Some(gate_name) = self.consume_identifier_token()? {
+            let mut gate = Gate::default();
+            gate.set_name(gate_name.to_string());
+            gate.set_identifier(self.expect_identifier()?.to_string());
+            self.expect_reserved_token("(")?;
+            module.push_gate(self.gate_ports(gate)?);
+            self.expect_reserved_token(")")?;
         } else {
             return Ok(None);
         }
@@ -204,7 +210,7 @@ impl Parser {
         })
     }
     /// ```regex
-    /// identifier := identifier "[" number "]"
+    /// identifier_range := identifier ( "[" number "]" )?
     /// ```
     fn identifier_range(&mut self) -> Result<String, String> {
         let mut identifier_range = vec![self.expect_identifier()?];
@@ -217,7 +223,24 @@ impl Parser {
             .into_iter()
             .map(|t| t.to_string())
             .collect::<Vec<_>>()
-            .join(" "))
+            .join(""))
+    }
+    /// ```regex
+    /// gate_ports := ( "." identifier "(" identifier_range ")" )*
+    /// ```
+    fn gate_ports(&mut self, mut gate: Gate) -> Result<Gate, String> {
+        use Signal::*;
+        while let Some(_) = self.consume_reserved_token(".")? {
+            let port = self.expect_identifier()?.to_string();
+            self.expect_reserved_token("(")?;
+            let wire = self.identifier_range()?.to_string();
+            gate.push_port(port, wire);
+            self.expect_reserved_token(")")?;
+            if self.consume_reserved_token(",")?.is_none() {
+                break;
+            }
+        }
+        Ok(gate)
     }
     fn current(&self) -> Option<&Token> {
         self.tokens.last()
@@ -235,7 +258,7 @@ mod test {
     #[test]
     fn parse() {
         let lexer = Lexer::from_str(
-            "module or( a, b, z ); input [2:0] a, b; output [2:0] z; assign z[0] = a[0] + b[0]; endmodule ",
+            "module or( a, b, z ); input [1:0] a, b; output [1:0] z; assign z[0] = a[0] + b[0]; and u1(.a(a[1]), .b(b[1]), .z(z[1])); endmodule ",
         );
         let verilog = Parser::from_tokens(lexer.tokenize()).verilog().unwrap();
         println!("{:?}", verilog)
