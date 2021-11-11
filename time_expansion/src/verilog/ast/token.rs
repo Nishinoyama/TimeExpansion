@@ -77,8 +77,8 @@ impl Lexer<'_> {
     }
     fn is_match(&self, pat: &str) -> bool {
         let n = pat.len();
-        let eo_char = self.get_char(n).unwrap_or('$');
-        self.is_match_without_delimiter(pat) && eo_char.is_whitespace()
+        let eo_char = self.get_char(self.index + n).unwrap_or(' ');
+        self.is_match_without_delimiter(pat) && !eo_char.is_alphanumeric() && eo_char != '_'
     }
     fn is_match_without_delimiter(&self, pat: &str) -> bool {
         let n = pat.len();
@@ -103,7 +103,7 @@ impl Lexer<'_> {
             .next()
     }
     fn consume_reserved_single_token(&mut self) -> Option<Token> {
-        let reserved = "()[]:;,=+*~".chars();
+        let reserved = "()[]:;,=+&~^".chars();
         let current = self.current().unwrap();
         reserved
             .into_iter()
