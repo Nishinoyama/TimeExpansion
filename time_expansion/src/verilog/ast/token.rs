@@ -1,6 +1,6 @@
 use std::str::Chars;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Reserved(String),
     Identifier(String),
@@ -8,10 +8,10 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn name_is(&self, cmp_name: &String) -> bool {
+    pub fn to_string(&self) -> String {
         use crate::verilog::ast::token::Token::*;
         match self {
-            Reserved(name) | Identifier(name) | Number(name) => name.eq(cmp_name),
+            Reserved(name) | Identifier(name) | Number(name) => name.clone(),
         }
     }
 }

@@ -1,20 +1,13 @@
-use std::fs::File;
-use std::io::BufReader;
-use std::io::prelude::*;
 use crate::time_expansion::config::ExpansionConfig;
+use crate::verilog::ast::parser::Parser;
 use crate::verilog::ast::token::Lexer;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::BufReader;
 
 #[derive(Clone, Debug, Default)]
 pub struct Verilog {
-    top_module: String,
-    other_module: Vec<String>,
-
-    input_definitions: Vec<String>,
-    output_definitions: Vec<String>,
-    wire_definitions: Vec<String>,
-    assign_definitions: Vec<String>,
-    flipflop_definitions: Vec<String>,
-    combination_circuit_definitions: Vec<String>,
+    modules: Vec<Module>,
 }
 
 impl Verilog {
@@ -27,11 +20,12 @@ impl Verilog {
             verilog_string += &line;
             verilog_string += &String::from("\n");
         }
-        let verilog = Lexer::from_chars(verilog_string.chars().clone());
-        let tokens = verilog.tokenize();
-        Ok(Verilog::default())
+        let lexer = Lexer::from_str(verilog_string.as_str());
+        let parser = Parser::from_tokens(lexer.tokenize());
+        println!("{:?}", parser);
+        let verilog = parser.verilog().unwrap();
+        Ok(verilog)
     }
-
     pub fn from_config(config: &ExpansionConfig) -> Self {
         // let mut verilog = Verilog::default();
         eprintln!("{}", config.get_input_file());
@@ -41,6 +35,44 @@ impl Verilog {
         // verilog
         Verilog::default()
     }
+    pub fn push_module(&mut self, module: Module) {
+        self.modules.push(module);
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Module {
+    name: String,
+    inputs: Vec<Signal>,
+    outputs: Vec<Signal>,
+    wires: Vec<Signal>,
+    assigns: Vec<String>,
+    flipflop_definitions: Vec<String>,
+    combination_circuits: Vec<String>,
+}
+
+impl Module {
+    pub fn set_name(&mut self, name: String) {
+        self.name = name
+    }
+    pub fn push_input(&mut self, input: Signal) {
+        self.inputs.push(input);
+    }
+    pub fn push_output(&mut self, output: Signal) {
+        self.outputs.push(output);
+    }
+    pub fn push_wire(&mut self, wire: Signal) {
+        self.wires.push(wire);
+    }
+    pub fn push_assign(&mut self, assign: String) {
+        self.assigns.push(assign);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Signal {
+    Multiple((String, String), String),
+    Single(String),
 }
 
 #[cfg(test)]
