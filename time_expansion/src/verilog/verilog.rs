@@ -1,9 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
-use regex::Regex;
 use crate::time_expansion::config::ExpansionConfig;
-use crate::verilog::ast::*;
 use crate::verilog::ast::token::Lexer;
 
 #[derive(Clone, Debug, Default)]
@@ -22,14 +20,14 @@ pub struct Verilog {
 impl Verilog {
     fn from_file(file_name: String) -> std::io::Result<Verilog> {
         let verilog_file = File::open(file_name)?;
-        let mut verilog_buf_reader = BufReader::new(verilog_file);
+        let verilog_buf_reader = BufReader::new(verilog_file);
         let mut verilog_string = String::new();
         for line in verilog_buf_reader.lines() {
             let line = line.unwrap().split("//").next().unwrap().to_string();
             verilog_string += &line;
             verilog_string += &String::from("\n");
         }
-        let mut verilog = Lexer::from_chars(verilog_string.chars().clone());
+        let verilog = Lexer::from_chars(verilog_string.chars().clone());
         let tokens = verilog.tokenize();
         Ok(Verilog::default())
     }
@@ -47,11 +45,7 @@ impl Verilog {
 
 #[cfg(test)]
 mod test {
-    use std::fs::File;
     use crate::time_expansion::config::ExpansionConfig;
-    use crate::time_expansion::config::ExpansionMethod::Broadside;
-    use crate::time_expansion::ff_definition::FFDefinition;
-    use crate::time_expansion::inv_definition::InvDefinition;
     use crate::verilog::verilog::Verilog;
 
     #[test]

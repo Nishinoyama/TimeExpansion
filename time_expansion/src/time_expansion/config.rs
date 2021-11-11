@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
 use std::option::Option::Some;
-use std::process::exit;
 use regex::Regex;
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
 use crate::time_expansion::ff_definition::FFDefinition;
@@ -28,7 +27,7 @@ impl ExpansionConfig {
 
     fn read_file(&self, file_name: &str ) -> std::io::Result<Vec<String>> {
         let config_file = File::open(file_name)?;
-        let mut config_buf_reader = BufReader::new(config_file);
+        let config_buf_reader = BufReader::new(config_file);
         let mut lines = Vec::new();
         for line in config_buf_reader.lines() {
             let line = line.unwrap().split("#").next().unwrap().to_string();
@@ -152,7 +151,6 @@ impl Default for ExpansionMethod {
 
 #[cfg(test)]
 mod test {
-    use std::fs::File;
     use crate::time_expansion::config::ExpansionConfig;
     use crate::time_expansion::config::ExpansionMethod::Broadside;
     use crate::time_expansion::ff_definition::FFDefinition;
