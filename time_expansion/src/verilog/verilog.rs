@@ -1,40 +1,57 @@
-use std::collections::{BTreeSet, HashMap};
 use crate::time_expansion::config::ExpansionConfig;
 use crate::verilog::ast::parser::Parser;
 use crate::verilog::ast::token::Lexer;
+use crate::verilog::netlist_serializer::NetlistSerializer;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Verilog {
     modules: Vec<Module>,
 }
 
 impl Verilog {
-    fn from_file(file_name: String) -> std::io::Result<Verilog> {
+    pub fn from_net_list(net_list: String) -> Verilog {
+        let lexer = Lexer::from_str(net_list.as_str());
+        let parser = Parser::from_tokens(lexer.tokenize());
+        parser.verilog().unwrap()
+    }
+    pub fn from_file(file_name: String) -> std::io::Result<Verilog> {
         let verilog_file = File::open(file_name)?;
         let verilog_buf_reader = BufReader::new(verilog_file);
-        let mut verilog_string = String::new();
+        let mut net_list = String::new();
         for line in verilog_buf_reader.lines() {
             let line = line.unwrap().split("//").next().unwrap().to_string();
-            verilog_string += &line;
-            verilog_string += &String::from("\n");
+            net_list += &line;
+            net_list += &String::from("\n");
         }
-        let lexer = Lexer::from_str(verilog_string.as_str());
-        let parser = Parser::from_tokens(lexer.tokenize());
-        let verilog = parser.verilog().unwrap();
-        Ok(verilog)
+        Ok(Self::from_net_list(net_list))
     }
     pub fn from_config(config: &ExpansionConfig) -> Self {
-        Verilog::from_file(config.get_input_file().clone()).unwrap()
+        Self::from_file(config.get_input_file().clone()).unwrap()
     }
     pub fn push_module(&mut self, module: Module) {
         self.modules.push(module);
     }
 }
 
-#[derive(Clone, Debug, Default)]
+impl NetlistSerializer for Verilog {
+    fn gen(&self) -> String {
+        format!(
+            "{modules}",
+            modules = self
+                .modules
+                .iter()
+                .map(|module| module.gen())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Module {
     name: String,
     inputs: HashMap<SignalRange, BTreeSet<String>>,
@@ -52,21 +69,24 @@ impl Module {
         if let Some(inputs) = self.inputs.get_mut(range) {
             inputs.insert(input);
         } else {
-            self.inputs.insert(range.clone(), vec![input].into_iter().collect());
+            self.inputs
+                .insert(range.clone(), vec![input].into_iter().collect());
         }
     }
     pub fn push_output(&mut self, range: &SignalRange, output: String) {
         if let Some(outputs) = self.outputs.get_mut(range) {
             outputs.insert(output);
         } else {
-            self.outputs.insert(range.clone(), vec![output].into_iter().collect());
+            self.outputs
+                .insert(range.clone(), vec![output].into_iter().collect());
         }
     }
     pub fn push_wire(&mut self, range: &SignalRange, wire: String) {
         if let Some(wires) = self.wires.get_mut(range) {
             wires.insert(wire);
         } else {
-            self.wires.insert(range.clone(), vec![wire].into_iter().collect());
+            self.wires
+                .insert(range.clone(), vec![wire].into_iter().collect());
         }
     }
     pub fn push_assign(&mut self, assign: String) {
@@ -77,13 +97,72 @@ impl Module {
     }
 }
 
+impl NetlistSerializer for Module {
+    fn gen(&self) -> String {
+        let mut module = format!(
+            "module {ident} ( {ports} );\n",
+            ident = self.name,
+            ports = self
+                .inputs
+                .iter()
+                .chain(self.outputs.iter())
+                .map(|(_, signals)| Self::multi_gen(signals, ", "),)
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        for (r, s) in &self.inputs {
+            module += &format!(
+                "  input {range}{inputs};\n",
+                range = r.gen(),
+                inputs = Self::multi_gen(s, ", "),
+            )
+        }
+        for (r, s) in &self.outputs {
+            module += &format!(
+                "  output {range}{outputs};\n",
+                range = r.gen(),
+                outputs = Self::multi_gen(s, ", "),
+            )
+        }
+        for (r, s) in &self.wires {
+            module += &format!(
+                "  wire {range}{wires};\n",
+                range = r.gen(),
+                wires = Self::multi_gen(s, ", "),
+            )
+        }
+        for assign in &self.assigns {
+            module += &format!("  assign {};\n", assign);
+        }
+        module += "\n";
+        for (ident, gate) in &self.gates {
+            module += &format!(
+                "  {gate_name} {ident} {gate};\n",
+                gate_name = gate.name,
+                ident = ident,
+                gate = gate.gen()
+            )
+        }
+        module + "endmodule;\n"
+    }
+}
+
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum SignalRange {
     Multiple((String, String)),
     Single,
 }
 
-#[derive(Clone, Debug, Default)]
+impl NetlistSerializer for SignalRange {
+    fn gen(&self) -> String {
+        match self {
+            Self::Multiple((r, l)) => format!("[{}:{}] ", r, l),
+            _ => format!(""),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Gate {
     name: String,
     ports: Vec<(String, String)>,
@@ -95,6 +174,19 @@ impl Gate {
     }
     pub fn push_port(&mut self, port: String, wire: String) {
         self.ports.push((port, wire));
+    }
+}
+
+impl NetlistSerializer for Gate {
+    fn gen(&self) -> String {
+        format!(
+            "( {} )",
+            self.ports
+                .iter()
+                .map(|(port, wire)| format!(".{}({})", port, wire))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
