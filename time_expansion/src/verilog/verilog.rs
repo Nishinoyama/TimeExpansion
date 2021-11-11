@@ -22,18 +22,11 @@ impl Verilog {
         }
         let lexer = Lexer::from_str(verilog_string.as_str());
         let parser = Parser::from_tokens(lexer.tokenize());
-        println!("{:?}", parser);
         let verilog = parser.verilog().unwrap();
         Ok(verilog)
     }
     pub fn from_config(config: &ExpansionConfig) -> Self {
-        // let mut verilog = Verilog::default();
-        eprintln!("{}", config.get_input_file());
-        let verilog = Verilog::from_file(config.get_input_file().clone()).unwrap();
-        // verilog.top_module = config.get_top_module();
-        eprintln!("{:?}", verilog);
-        // verilog
-        Verilog::default()
+        Verilog::from_file(config.get_input_file().clone()).unwrap()
     }
     pub fn push_module(&mut self, module: Module) {
         self.modules.push(module);
