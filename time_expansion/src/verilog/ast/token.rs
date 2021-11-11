@@ -12,19 +12,22 @@ impl Token {
         use crate::verilog::ast::token::Token::*;
         match self {
             Reserved(name) | Identifier(name) | Number(name) => name.eq(cmp_name),
-            _ => false
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Lexer<'a> {
-    input: Chars<'a>,
+    input: &'a str,
+    index: usize,
 }
 
 impl<'a> Lexer<'a> {
+    pub fn from_str(input: &'a str) -> Self {
+        Self { input, index: 0 }
+    }
     pub fn from_chars(chars: Chars<'a>) -> Self {
-        Self { input: chars }
+        Self::from_str(chars.as_str())
     }
 }
 
@@ -48,86 +51,93 @@ impl Lexer<'_> {
         }
         tokens
     }
-    pub fn token(&mut self) -> Option<Token> {
-        None
+    fn current(&self) -> Option<char> {
+        self.get_char(self.index)
     }
-    pub fn current(&mut self) -> Option<char> {
-        self.input.clone().next()
+    fn current_chars(&self) -> Chars {
+        let mut chars = self.input.chars();
+        if self.index != 0 {
+            chars.nth(self.index - 1);
+        };
+        chars
     }
-    pub fn next(&mut self) -> Option<char> {
-        self.input.next()
+    fn next(&mut self) -> Option<char> {
+        self.index += 1;
+        self.get_char(self.index - 1)
     }
-    pub fn consume_reserved_token(&mut self) -> Option<Token> {
-        let reserved = vec![
-            "endmodule",
-            "module",
-            "output",
-            "assign",
-            "input",
-            "wire",
-        ];
+    fn nth(&mut self, n: usize) -> Option<char> {
+        self.index += n + 1;
+        self.get_char(self.index - 1)
+    }
+    fn get_char(&self, n: usize) -> Option<char> {
+        self.input.chars().nth(n)
+    }
+    fn get_substr(&self, len: usize) -> Option<&str> {
+        self.input.get(self.index..(self.index + len))
+    }
+    fn is_match(&self, pat: &str) -> bool {
+        let n = pat.len();
+        let eo_char = self.get_char(n).unwrap_or('$');
+        self.is_match_without_delimiter(pat) && eo_char.is_whitespace()
+    }
+    fn is_match_without_delimiter(&self, pat: &str) -> bool {
+        let n = pat.len();
+        if let Some(substr) = self.get_substr(n) {
+            substr.eq(pat)
+        } else {
+            false
+        }
+    }
+    fn consume_reserved_token(&mut self) -> Option<Token> {
+        let reserved = vec!["endmodule", "module", "output", "assign", "input", "wire"];
         reserved
-            .iter()
-            .filter_map(|&res| {
-                let n = res.len();
-                let mut tmp_input = self.input.clone();
-                let get_str: String = tmp_input.clone().take(n).collect();
-                let eo_char = tmp_input.nth(n).unwrap_or('$');
-                if res.eq(get_str.as_str()) && eo_char.is_whitespace() {
-                    self.input.nth(n - 1);
-                    Some(Token::Reserved(get_str.to_string()))
+            .into_iter()
+            .filter_map(|pat| {
+                if self.is_match(pat) {
+                    self.nth(pat.len() - 1);
+                    Some(Token::Reserved(pat.to_string()))
                 } else {
                     None
                 }
             })
             .next()
     }
-    pub fn consume_reserved_single_token(&mut self) -> Option<Token> {
-        let reserved = vec![
-            "(",
-            ")",
-            "[",
-            "]",
-            ":",
-            ";",
-            ",",
-        ];
+    fn consume_reserved_single_token(&mut self) -> Option<Token> {
+        let reserved = "()[]:;,=+*~".chars();
+        let current = self.current().unwrap();
         reserved
-            .iter()
-            .filter_map(|&res| {
-                let n = res.len();
-                let mut tmp_input = self.input.clone();
-                let get_str: String = tmp_input.clone().take(n).collect();
-                if res.eq(get_str.as_str()) {
-                    self.input.nth(n - 1);
-                    Some(Token::Reserved(get_str.to_string()))
+            .into_iter()
+            .filter_map(|c| {
+                if current == c {
+                    self.next();
+                    Some(Token::Reserved(c.to_string()))
                 } else {
                     None
                 }
             })
             .next()
     }
-    pub fn consume_identifier_token(&mut self) -> Option<Token> {
-        let mut tmp_input = self.input.clone();
+    fn consume_identifier_token(&mut self) -> Option<Token> {
         if !self.current().unwrap().is_alphabetic() {
             None
         } else {
+            let tmp_input = self.current_chars();
             let ident_name: String = tmp_input
                 .take_while(|c| c.is_alphanumeric() || c.eq(&'_'))
                 .collect();
-            self.input.nth(ident_name.len() - 1);
+            self.nth(ident_name.len() - 1);
             Some(Token::Identifier(ident_name))
         }
     }
-    pub fn consume_number_token(&mut self) -> Option<Token> {
-        let mut tmp_input = self.input.clone();
+    fn consume_number_token(&mut self) -> Option<Token> {
         if !self.current().unwrap().is_numeric() {
             None
         } else {
+            let tmp_input = self.current_chars();
             let number: String = tmp_input
                 .take_while(|c| c.is_numeric() || c.eq(&'\''))
                 .collect();
-            self.input.nth(number.len() - 1);
+            self.nth(number.len() - 1);
             Some(Token::Number(number))
         }
     }
@@ -139,7 +149,9 @@ mod test {
 
     #[test]
     fn tokenize() {
-        let lexer = Lexer::from_chars("module or( a, b, z ); input a, b; output z; assign z = a + b; endmodule".chars());
+        let lexer = Lexer::from_str(
+            "module or( a, b, z ); input a, b; output z; assign z = a + b; endmodule",
+        );
         eprintln!("{:?}", lexer.tokenize());
     }
 }
