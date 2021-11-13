@@ -118,15 +118,21 @@ impl Parser {
         if let Some(_) = self.consume_reserved_token("input")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(&range)?;
-            signals.into_iter().for_each(|s| module.push_input(&range, s));
+            signals
+                .into_iter()
+                .for_each(|s| module.push_input(&range, s));
         } else if let Some(_) = self.consume_reserved_token("output")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(&range)?;
-            signals.into_iter().for_each(|s| module.push_output(&range, s));
+            signals
+                .into_iter()
+                .for_each(|s| module.push_output(&range, s));
         } else if let Some(_) = self.consume_reserved_token("wire")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(&range)?;
-            signals.into_iter().for_each(|s| module.push_wire(&range, s));
+            signals
+                .into_iter()
+                .for_each(|s| module.push_wire(&range, s));
         } else if let Some(_) = self.consume_reserved_token("assign")? {
             self.expressions()?
                 .into_iter()
@@ -136,7 +142,7 @@ impl Parser {
             gate.set_name(gate_name.to_string());
             let ident = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
-            module.push_gate(ident,self.gate_ports(gate)?);
+            module.push_gate(ident, self.gate_ports(gate)?);
             self.expect_reserved_token(")")?;
         } else {
             return Ok(None);
@@ -147,7 +153,10 @@ impl Parser {
     /// ```regex
     /// declarations := identifier ( "," identifier )*
     /// ```
-    fn declarations(&mut self, range: &Option<(String, String)>) -> Result<(SignalRange, Vec<String>), String> {
+    fn declarations(
+        &mut self,
+        range: &Option<(String, String)>,
+    ) -> Result<(SignalRange, Vec<String>), String> {
         use SignalRange::*;
         let signal_range = if let Some(sr) = range {
             Multiple(sr.clone())
@@ -257,7 +266,6 @@ mod test {
         let lexer = Lexer::from_str(
             "module or( a, b, z ); input [1:0] a, b; output [1:0] z; assign z[0] = a[0] + b[0]; and u1(.a(a[1]), .b(b[1]), .z(z[1])); endmodule ",
         );
-        let verilog = Parser::from_tokens(lexer.tokenize()).verilog().unwrap();
-        println!("{:?}", verilog)
+        Parser::from_tokens(lexer.tokenize()).verilog().ok();
     }
 }

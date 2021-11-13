@@ -1,11 +1,11 @@
-use std::fs::File;
-use std::io::BufReader;
-use std::io::prelude::*;
-use std::option::Option::Some;
-use regex::Regex;
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
 use crate::time_expansion::ff_definition::FFDefinition;
 use crate::time_expansion::inv_definition::InvDefinition;
+use regex::Regex;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::option::Option::Some;
 
 #[derive(Clone, Default, Debug)]
 pub struct ExpansionConfig {
@@ -20,12 +20,10 @@ pub struct ExpansionConfig {
     equivalent_check: String,
     ff_definitions: Vec<FFDefinition>,
     inv_definition: InvDefinition,
-
 }
 
 impl ExpansionConfig {
-
-    fn read_file(&self, file_name: &str ) -> std::io::Result<Vec<String>> {
+    fn read_file(&self, file_name: &str) -> std::io::Result<Vec<String>> {
         let config_file = File::open(file_name)?;
         let config_buf_reader = BufReader::new(config_file);
         let mut lines = Vec::new();
@@ -59,9 +57,11 @@ impl ExpansionConfig {
             } else if let Some(cap) = top_module_regex.captures(line) {
                 self.top_module = cap.get(1).unwrap().as_str().to_string();
             } else if let Some(cap) = clock_pins_regex.captures(line) {
-                cap.get(1).unwrap().as_str().split(",").for_each(|pin| {
-                    self.clock_pins.push(pin.trim().to_string())
-                });
+                cap.get(1)
+                    .unwrap()
+                    .as_str()
+                    .split(",")
+                    .for_each(|pin| self.clock_pins.push(pin.trim().to_string()));
             } else if let Some(cap) = use_primary_io_regex.captures(line) {
                 self.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
             } else if let Some(cap) = equivalent_check_regex.captures(line) {
@@ -77,9 +77,12 @@ impl ExpansionConfig {
             } else if empty_line_regex.is_match(line) {
             } else {
                 eprintln!("Error: Undefined Option");
-                eprintln!("Syntax error at line {}", i+1);
+                eprintln!("Syntax error at line {}", i + 1);
                 eprintln!("{}", line);
-                return Err(format!("Error: Undefined Option.\nSyntax Error at line {}", i+1));
+                return Err(format!(
+                    "Error: Undefined Option.\nSyntax Error at line {}",
+                    i + 1
+                ));
             }
         }
         Ok(())
@@ -107,7 +110,7 @@ impl ExpansionConfig {
         }
     }
 
-    pub fn from_file( file_name: &str ) -> Result<Self, String> {
+    pub fn from_file(file_name: &str) -> Result<Self, String> {
         let mut config = Self::default();
         let lines = config.read_file(file_name).unwrap();
         config.parse_lines(lines)?;
@@ -118,7 +121,6 @@ impl ExpansionConfig {
     pub fn get_input_file(&self) -> &String {
         &self.input_file
     }
-
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -159,7 +161,6 @@ mod test {
     #[test]
     fn expansion_config() {
         let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        println!("{:?}", ec);
         assert_eq!(ec.expand_method, Some(Broadside));
         assert_eq!(ec.input_file, "b01_net.v");
         assert_eq!(ec.output_file, "b01_bs_net.v");
@@ -167,31 +168,47 @@ mod test {
         assert_eq!(ec.clock_pins, vec!["clock", "reset"]);
         assert_eq!(ec.equivalent_check, "str   NO   FLAG_reg/Q");
         assert!(!ec.use_primary_io);
-        assert_eq!(ec.ff_definitions, vec![
-            FFDefinition {
-                name: String::from("FD2S"), data_in:vec![String::from("D")],
-                data_out: vec![String::from("Q"), String::from("QN")],
-                control: vec![String::from("TI"), String::from("TE"),
-                              String::from("CP"), String::from("CD")],
-            },
-            FFDefinition {
-                name: String::from("FD2"), data_in:vec![String::from("D")],
-                data_out: vec![String::from("Q"), String::from("QN")],
-                control: vec![String::from("CP"), String::from("CD")],
-            },
-            FFDefinition {
-                name: String::from("FD1S"), data_in:vec![String::from("D")],
-                data_out: vec![String::from("Q"), String::from("QN")],
-                control: vec![String::from("TI"), String::from("TE"), String::from("CP")],
-            },
-            FFDefinition {
-                name: String::from("FD1"), data_in:vec![String::from("D")],
-                data_out: vec![String::from("Q"), String::from("QN")],
-                control: vec![String::from("CP")],
-            },
-        ]);
-        assert_eq!(ec.inv_definition, InvDefinition {
-            name: String::from("IV"), input: String::from("A"), output: String::from("Z")
-        })
+        assert_eq!(
+            ec.ff_definitions,
+            vec![
+                FFDefinition {
+                    name: String::from("FD2S"),
+                    data_in: vec![String::from("D")],
+                    data_out: vec![String::from("Q"), String::from("QN")],
+                    control: vec![
+                        String::from("TI"),
+                        String::from("TE"),
+                        String::from("CP"),
+                        String::from("CD")
+                    ],
+                },
+                FFDefinition {
+                    name: String::from("FD2"),
+                    data_in: vec![String::from("D")],
+                    data_out: vec![String::from("Q"), String::from("QN")],
+                    control: vec![String::from("CP"), String::from("CD")],
+                },
+                FFDefinition {
+                    name: String::from("FD1S"),
+                    data_in: vec![String::from("D")],
+                    data_out: vec![String::from("Q"), String::from("QN")],
+                    control: vec![String::from("TI"), String::from("TE"), String::from("CP")],
+                },
+                FFDefinition {
+                    name: String::from("FD1"),
+                    data_in: vec![String::from("D")],
+                    data_out: vec![String::from("Q"), String::from("QN")],
+                    control: vec![String::from("CP")],
+                },
+            ]
+        );
+        assert_eq!(
+            ec.inv_definition,
+            InvDefinition {
+                name: String::from("IV"),
+                input: String::from("A"),
+                output: String::from("Z")
+            }
+        )
     }
 }

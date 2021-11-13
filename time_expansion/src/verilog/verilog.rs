@@ -15,7 +15,8 @@ pub struct Verilog {
 impl Verilog {
     pub fn from_net_list(net_list: String) -> Verilog {
         let lexer = Lexer::from_str(net_list.as_str());
-        let parser = Parser::from_tokens(lexer.tokenize());
+        let tokens = lexer.tokenize();
+        let parser = Parser::from_tokens(tokens);
         parser.verilog().unwrap()
     }
     pub fn from_file(file_name: String) -> std::io::Result<Verilog> {
@@ -192,13 +193,10 @@ impl NetlistSerializer for Gate {
 
 #[cfg(test)]
 mod test {
-    use crate::time_expansion::config::ExpansionConfig;
     use crate::verilog::verilog::Verilog;
 
     #[test]
     fn expansion_config() {
-        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        let verilog = Verilog::from_config(&ec);
-        eprintln!("{:?}", verilog);
+        Verilog::from_file("b15_net.v".to_string()).ok();
     }
 }

@@ -149,9 +149,6 @@ mod test {
 
     #[test]
     fn tokenize() {
-        let lexer = Lexer::from_str(
-            "module or( a, b, z ); input a, b; output z; assign z = a + b; endmodule",
-        );
-        eprintln!("{:?}", lexer.tokenize());
+        Lexer::from_str("module or( a, b, z ); input a, b; output z; assign z = a + b; endmodule");
     }
 }
