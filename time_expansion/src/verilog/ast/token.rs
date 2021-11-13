@@ -18,13 +18,16 @@ impl Token {
 
 #[derive(Debug)]
 pub struct Lexer<'a> {
-    input: &'a str,
+    input: &'a [u8],
     index: usize,
 }
 
 impl<'a> Lexer<'a> {
     pub fn from_str(input: &'a str) -> Self {
-        Self { input, index: 0 }
+        Self {
+            input: input.as_bytes(),
+            index: 0,
+        }
     }
     pub fn from_chars(chars: Chars<'a>) -> Self {
         Self::from_str(chars.as_str())
@@ -35,7 +38,7 @@ impl Lexer<'_> {
     pub fn tokenize(mut self) -> Vec<Token> {
         let mut tokens = vec![];
         while let Some(c) = self.current() {
-            if c.is_whitespace() {
+            if c.is_ascii_whitespace() {
                 self.next();
             } else if let Some(token) = self.consume_reserved_single_token() {
                 tokens.push(token);
@@ -51,39 +54,32 @@ impl Lexer<'_> {
         }
         tokens
     }
-    fn current(&self) -> Option<char> {
+    fn current(&self) -> Option<&u8> {
         self.get_char(self.index)
     }
-    fn current_chars(&self) -> Chars {
-        let mut chars = self.input.chars();
-        if self.index != 0 {
-            chars.nth(self.index - 1);
-        };
-        chars
-    }
-    fn next(&mut self) -> Option<char> {
+    fn next(&mut self) -> Option<&u8> {
         self.index += 1;
         self.get_char(self.index - 1)
     }
-    fn nth(&mut self, n: usize) -> Option<char> {
+    fn nth(&mut self, n: usize) -> Option<&u8> {
         self.index += n + 1;
         self.get_char(self.index - 1)
     }
-    fn get_char(&self, n: usize) -> Option<char> {
-        self.input.chars().nth(n)
+    fn get_char(&self, n: usize) -> Option<&u8> {
+        self.input.get(n)
     }
-    fn get_substr(&self, len: usize) -> Option<&str> {
+    fn get_substr(&self, len: usize) -> Option<&[u8]> {
         self.input.get(self.index..(self.index + len))
     }
     fn is_match(&self, pat: &str) -> bool {
         let n = pat.len();
-        let eo_char = self.get_char(self.index + n).unwrap_or(' ');
-        self.is_match_without_delimiter(pat) && !eo_char.is_alphanumeric() && eo_char != '_'
+        let eo_char = *self.get_char(self.index + n).unwrap_or(&(b' '));
+        self.is_match_without_delimiter(pat) && !eo_char.is_ascii_alphanumeric() && eo_char != b'_'
     }
     fn is_match_without_delimiter(&self, pat: &str) -> bool {
         let n = pat.len();
         if let Some(substr) = self.get_substr(n) {
-            substr.eq(pat)
+            substr.eq(pat.as_bytes())
         } else {
             false
         }
@@ -104,10 +100,10 @@ impl Lexer<'_> {
     }
     fn consume_reserved_single_token(&mut self) -> Option<Token> {
         let reserved = "()[]:;,.=+&~^".chars();
-        let current = self.current().unwrap();
+        let current = *self.current().unwrap() as char;
         reserved
             .into_iter()
-            .filter_map(|c| {
+            .filter_map(|c: char| {
                 if current == c {
                     self.next();
                     Some(Token::Reserved(c.to_string()))
@@ -118,26 +114,36 @@ impl Lexer<'_> {
             .next()
     }
     fn consume_identifier_token(&mut self) -> Option<Token> {
-        if !self.current().unwrap().is_alphabetic() {
+        let head = *self.current().unwrap() as char;
+        if !head.is_ascii_alphabetic() {
             None
         } else {
-            let tmp_input = self.current_chars();
-            let ident_name: String = tmp_input
-                .take_while(|c| c.is_alphanumeric() || c.eq(&'_'))
-                .collect();
-            self.nth(ident_name.len() - 1);
+            let mut ident_name = String::new();
+            while let Some(&c) = self.current() {
+                if c.is_ascii_alphanumeric() || c.eq(&b'_') {
+                    self.next();
+                    ident_name.push(c as char);
+                } else {
+                    break;
+                }
+            }
             Some(Token::Identifier(ident_name))
         }
     }
     fn consume_number_token(&mut self) -> Option<Token> {
-        if !self.current().unwrap().is_numeric() {
+        let head = *self.current().unwrap() as char;
+        if !head.is_ascii_digit() {
             None
         } else {
-            let tmp_input = self.current_chars();
-            let number: String = tmp_input
-                .take_while(|c| c.is_numeric() || c.eq(&'\''))
-                .collect();
-            self.nth(number.len() - 1);
+            let mut number = String::new();
+            while let Some(&c) = self.current() {
+                if c.is_ascii_digit() || c.eq(&b'\'') {
+                    self.next();
+                    number.push(c as char);
+                } else {
+                    break;
+                }
+            }
             Some(Token::Number(number))
         }
     }
