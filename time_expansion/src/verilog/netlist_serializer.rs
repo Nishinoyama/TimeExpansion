@@ -13,7 +13,7 @@ pub trait NetlistSerializer {
 #[cfg(test)]
 mod test {
     use crate::verilog::netlist_serializer::NetlistSerializer;
-    use crate::verilog::verilog::Verilog;
+    use crate::verilog::Verilog;
 
     #[test]
     fn expansion_config() {

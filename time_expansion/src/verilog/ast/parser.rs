@@ -1,5 +1,5 @@
 use crate::verilog::ast::token::Token;
-use crate::verilog::verilog::{Gate, Module, SignalRange, Verilog};
+use crate::verilog::{Gate, Module, SignalRange, Verilog};
 
 #[derive(Clone, Debug)]
 pub struct Parser {
