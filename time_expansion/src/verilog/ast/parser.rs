@@ -40,6 +40,17 @@ impl Parser {
         let expected_token = Token::Reserved(name.to_string());
         self.consume_token_if_eq(expected_token)
     }
+    fn consume_number_token(&mut self) -> Result<Option<Token>, String> {
+        Ok(if let Some(token) = self.current() {
+            if let Token::Number(_) = token {
+                self.next()
+            } else {
+                None
+            }
+        } else {
+            None
+        })
+    }
     fn expect_token(&mut self) -> Result<Token, String> {
         if let Some(token) = self.next() {
             Ok(token)
@@ -233,14 +244,18 @@ impl Parser {
             .join(""))
     }
     /// ```regex
-    /// gate_ports := ( "." identifier "(" identifier_range ")" )*
+    /// gate_ports := ( "." identifier "(" identifier_range | number ")" )*
     /// ```
     fn gate_ports(&mut self, mut gate: Gate) -> Result<Gate, String> {
         while let Some(_) = self.consume_reserved_token(".")? {
             let port = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
-            let wire = self.identifier_range()?.to_string();
-            gate.push_port(port, wire);
+            if let Some(wire) = self.consume_number_token()? {
+                gate.push_port(port, wire.to_string());
+            } else {
+                let wire = self.identifier_range()?.to_string();
+                gate.push_port(port, wire);
+            }
             self.expect_reserved_token(")")?;
             if self.consume_reserved_token(",")?.is_none() {
                 break;
@@ -264,7 +279,7 @@ mod test {
     #[test]
     fn parse() {
         let lexer = Lexer::from_str(
-            "module or( a, b, z ); input [1:0] a, b; output [1:0] z; assign z[0] = a[0] + b[0]; and u1(.a(a[1]), .b(b[1]), .z(z[1])); endmodule ",
+            "module or( a, b, z ); input [1:0] a, b; output [1:0] z; assign z[0] = a[0] + b[0]; and u1(.a(a[1]), .b(1'b1), .z(z[1])); endmodule ",
         );
         Parser::from_tokens(lexer.tokenize()).verilog().ok();
     }
