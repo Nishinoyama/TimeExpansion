@@ -39,6 +39,9 @@ impl Verilog {
     pub fn push_module(&mut self, module: Module) {
         self.modules.push(module);
     }
+    pub fn get_module(&self, name: &String) -> Option<&Module> {
+        self.modules.iter().find(|m| m.name.eq(name))
+    }
 }
 
 impl NetlistSerializer for Verilog {
@@ -77,6 +80,11 @@ impl Module {
                 .insert(range.clone(), vec![input].into_iter().collect());
         }
     }
+    pub fn remove_input(&mut self, input: &String) {
+        self.inputs.iter_mut().for_each(|(_, inputs)| {
+            inputs.remove(input);
+        });
+    }
     pub fn push_output(&mut self, range: &SignalRange, output: String) {
         if let Some(outputs) = self.outputs.get_mut(range) {
             outputs.insert(output);
@@ -84,6 +92,11 @@ impl Module {
             self.outputs
                 .insert(range.clone(), vec![output].into_iter().collect());
         }
+    }
+    pub fn remove_output(&mut self, output: &String) {
+        self.outputs.iter_mut().for_each(|(_, outputs)| {
+            outputs.remove(output);
+        });
     }
     pub fn push_wire(&mut self, range: &SignalRange, wire: String) {
         if let Some(wires) = self.wires.get_mut(range) {
@@ -98,6 +111,12 @@ impl Module {
     }
     pub fn push_gate(&mut self, ident: String, gate: Gate) {
         self.gates.insert(ident, gate);
+    }
+    pub fn remove_gate(&mut self, ident: &String) -> Option<Gate> {
+        self.gates.remove(ident)
+    }
+    pub fn get_gates(&self) -> &HashMap<String, Gate> {
+        &self.gates
     }
 }
 
@@ -182,8 +201,17 @@ impl Gate {
     pub fn set_name(&mut self, name: String) {
         self.name = name;
     }
+    pub fn get_name(&self) -> &String {
+        &self.name
+    }
     pub fn push_port(&mut self, port: String, wire: String) {
         self.ports.push((port, wire));
+    }
+    pub fn get_ports(&self) -> &Vec<(String, String)> {
+        &self.ports
+    }
+    pub fn get_port_by_name(&self, port_name: &String) -> Option<&(String, String)> {
+        self.ports.iter().find(|(port, _)| port.eq(port_name))
     }
 }
 

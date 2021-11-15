@@ -1,4 +1,5 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
+use crate::verilog::{Gate, Module, SignalRange};
 use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
@@ -33,7 +34,6 @@ impl ExpansionConfig {
         }
         Ok(lines)
     }
-
     fn parse_lines(&mut self, lines: Vec<String>) -> Result<(), String> {
         let expansion_method_regex = Regex::new(r"\s*expansion-method\s+(\S+)\s*").unwrap();
         let input_verilog_regex = Regex::new(r"\s*input-verilog\s+(\S+)\s*").unwrap();
@@ -87,7 +87,6 @@ impl ExpansionConfig {
         }
         Ok(())
     }
-
     fn verification(&self) -> Result<(), &'static str> {
         if self.clock_pins.is_empty() {
             eprintln!("Warning: clock-pins option is blank. (Asynchronous circuit?)");
@@ -109,7 +108,6 @@ impl ExpansionConfig {
             Ok(())
         }
     }
-
     pub fn from_file(file_name: &str) -> Result<Self, String> {
         let mut config = Self::default();
         let lines = config.read_file(file_name).unwrap();
@@ -117,9 +115,57 @@ impl ExpansionConfig {
         config.verification()?;
         Ok(config)
     }
-
     pub fn get_input_file(&self) -> &String {
         &self.input_file
+    }
+    fn extract_ff_gates(&self, module: &Module) -> Vec<(&FFDefinition, String, Gate)> {
+        module
+            .get_gates()
+            .iter()
+            .filter_map(|(s, g)| {
+                if let Some(ff_type) = self
+                    .ff_definitions
+                    .iter()
+                    .find(|ff_def| g.get_name().eq(&ff_def.name))
+                {
+                    Some((ff_type, s.clone(), g.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    pub fn extract_combinational_part(&self, module: &Module) -> Module {
+        let mut combinational_part = module.clone();
+        self.extract_ff_gates(&module)
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, (ff_def, ident, ff_gate))| {
+                let ppi = format!("ppi_{}_{}", i + 1, ident);
+                let ppo = format!("ppo_{}_{}", i + 1, ident);
+                for port in ff_def.data_in.iter() {
+                    if let Some((_, wire)) = ff_gate.get_port_by_name(port) {
+                        combinational_part.push_assign(format!("{} = {}", ppo, wire));
+                        combinational_part.push_output(&SignalRange::Single, ppo.clone());
+                    }
+                }
+                for port in ff_def.data_out.iter() {
+                    if let Some((_, wire)) = ff_gate.get_port_by_name(port) {
+                        combinational_part.push_input(&SignalRange::Single, ppi.clone());
+                        if port.contains("N") {
+                            combinational_part.push_gate(
+                                format!("UN{}", i + 1),
+                                self.inv_definition.to_gate(&ppi, wire),
+                            );
+                        } else {
+                            combinational_part.push_assign(format!("{} = {}", wire, ppi));
+                        }
+                    }
+                }
+                for _ in ff_def.control.iter() {}
+                combinational_part.remove_gate(&ident);
+            });
+        combinational_part
     }
 }
 
@@ -216,11 +262,9 @@ impl InvDefinition {
     pub fn set_name(&mut self, name: &String) {
         self.name = name.clone();
     }
-
     pub fn is_empty(&self) -> bool {
         self.name.is_empty() || self.input.is_empty() || self.output.is_empty()
     }
-
     pub fn from_file_iter(line_iter: &mut Enumerate<Iter<String>>) -> Self {
         let mut inv_defines = Self::default();
         let input_regex = Regex::new(r"\s*input\s+(\w+)\s*").unwrap();
@@ -245,12 +289,21 @@ impl InvDefinition {
         }
         return inv_defines;
     }
+    fn to_gate(&self, input_wire: &String, output_wire: &String) -> Gate {
+        let mut inv_gate = Gate::default();
+        inv_gate.set_name(self.name.clone());
+        inv_gate.push_port(self.input.clone(), input_wire.clone());
+        inv_gate.push_port(self.output.clone(), output_wire.clone());
+        inv_gate
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::time_expansion::config::ExpansionMethod::Broadside;
     use crate::time_expansion::config::{ExpansionConfig, FFDefinition, InvDefinition};
+    use crate::verilog::netlist_serializer::NetlistSerializer;
+    use crate::verilog::Verilog;
 
     #[test]
     fn expansion_config() {
@@ -304,5 +357,14 @@ mod test {
                 output: String::from("Z")
             }
         )
+    }
+
+    #[test]
+    pub fn extract_combinational_part() {
+        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
+        let verilog = Verilog::from_config(&ec);
+        let m = verilog.get_module(&ec.top_module).unwrap();
+        let c = ec.extract_combinational_part(m);
+        eprintln!("{}", c.gen());
     }
 }
