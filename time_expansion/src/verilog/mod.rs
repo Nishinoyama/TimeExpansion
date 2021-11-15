@@ -115,25 +115,31 @@ impl NetlistSerializer for Module {
                 .join(", "),
         );
         for (r, s) in &self.inputs {
-            module += &format!(
-                "  input {range}{inputs};\n",
-                range = r.gen(),
-                inputs = Self::multi_gen(s, ", "),
-            )
+            if !s.is_empty() {
+                module += &format!(
+                    "  input {range}{inputs};\n",
+                    range = r.gen(),
+                    inputs = Self::multi_gen(s, ", "),
+                )
+            }
         }
         for (r, s) in &self.outputs {
-            module += &format!(
-                "  output {range}{outputs};\n",
-                range = r.gen(),
-                outputs = Self::multi_gen(s, ", "),
-            )
+            if !s.is_empty() {
+                module += &format!(
+                    "  output {range}{outputs};\n",
+                    range = r.gen(),
+                    outputs = Self::multi_gen(s, ", "),
+                )
+            }
         }
         for (r, s) in &self.wires {
-            module += &format!(
-                "  wire {range}{wires};\n",
-                range = r.gen(),
-                wires = Self::multi_gen(s, ", "),
-            )
+            if !s.is_empty() {
+                module += &format!(
+                    "  wire {range}{wires};\n",
+                    range = r.gen(),
+                    wires = Self::multi_gen(s, ", "),
+                )
+            }
         }
         for assign in &self.assigns {
             module += &format!("  assign {};\n", assign);
@@ -147,7 +153,7 @@ impl NetlistSerializer for Module {
                 gate = gate.gen()
             )
         }
-        module + "endmodule;\n"
+        module + "endmodule\n"
     }
 }
 
