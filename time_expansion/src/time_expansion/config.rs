@@ -217,7 +217,7 @@ impl FFDefinition {
         let control_regex = Regex::new(r"\s*control\s+(.+)\s*").unwrap();
         let empty_line_regex = Regex::new(r"^\s*$").unwrap();
 
-        while let Some((mut i, mut ff_line)) = line_iter.next() {
+        while let Some((i, ff_line)) = line_iter.next() {
             if ff_line.contains("}") {
                 break;
             }
@@ -271,7 +271,7 @@ impl InvDefinition {
         let output_regex = Regex::new(r"\s*output\s+(\w+)\s*").unwrap();
         let empty_line_regex = Regex::new(r"^\s*$").unwrap();
 
-        while let Some((mut i, mut inv_line)) = line_iter.next() {
+        while let Some((i, inv_line)) = line_iter.next() {
             if inv_line.contains("}") {
                 break;
             }
@@ -365,6 +365,5 @@ mod test {
         let verilog = Verilog::from_config(&ec);
         let m = verilog.get_module(&ec.top_module).unwrap();
         let c = ec.extract_combinational_part(m);
-        eprintln!("{}", c.gen());
     }
 }

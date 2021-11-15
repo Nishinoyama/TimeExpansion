@@ -118,6 +118,70 @@ impl Module {
     pub fn get_gates(&self) -> &HashMap<String, Gate> {
         &self.gates
     }
+    pub fn insert_stuck_at_fault(
+        &self,
+        new_module_name: String,
+        stuck_signal: &String,
+        sa_value: usize,
+    ) -> Self {
+        let mut faulty_module = self.clone();
+        faulty_module.name = new_module_name;
+        let sa_value = format!("1'b{}", sa_value);
+        let stuck_signal = stuck_signal.split("/").collect::<Vec<_>>();
+        if stuck_signal.len() == 1 {
+            // top level port stuck fault
+            let stuck_wire = stuck_signal[0].to_string();
+            let mut stuck_port_wire = faulty_module
+                .get_gates()
+                .clone()
+                .into_iter()
+                .filter(|(ident, gate)| {
+                    gate.get_ports().iter().any(|(_, wire)| stuck_wire.eq(wire))
+                })
+                .collect::<Vec<_>>();
+            for (ident, mut gate) in stuck_port_wire {
+                for (port, wire) in gate.get_ports_mut() {
+                    if stuck_wire.eq(wire) {
+                        // TODO: Remove "Z" or "Y" Magic, which means output port!
+                        if port.contains("Z") || port.contains("Y") || port.contains("Q") {
+                            let opened_wire = format!("{}_drained", wire);
+                            faulty_module.push_wire(&SignalRange::Single, opened_wire.clone());
+                            faulty_module.push_assign(format!("{} = {}", wire, sa_value));
+                            *wire = opened_wire.clone();
+                        } else {
+                            *wire = sa_value.clone();
+                        }
+                    }
+                }
+                faulty_module.remove_gate(&ident);
+                faulty_module.push_gate(ident, gate)
+            }
+        } else if stuck_signal.len() == 2 {
+            // lower level gate port stuck fault
+            let stuck_gate_ident = stuck_signal[0].to_string();
+            let stuck_port_name = stuck_signal[1].to_string();
+            let mut stuck_gate = faulty_module.gates.get(&stuck_gate_ident).unwrap().clone();
+            let (_, wire) = stuck_gate.get_port_by_name_mut(&stuck_port_name).unwrap();
+            // TODO: Remove "Z" or "Y" Magic, which means output port!
+            if stuck_port_name.contains("Z") || stuck_port_name.contains("Y") {
+                let opened_wire = format!("{}_drained", wire);
+                faulty_module.push_wire(&SignalRange::Single, opened_wire.clone());
+                faulty_module.push_assign(format!("{} = {}", wire, sa_value));
+                *wire = opened_wire.clone();
+            } else {
+                *wire = sa_value.clone();
+            }
+            faulty_module.remove_gate(&stuck_gate_ident);
+            faulty_module.push_gate(stuck_gate_ident, stuck_gate)
+        } else {
+            // too deep level not to insert stuck fault
+            panic!(
+                "Specified fault \"{}\" is too deep to be inserted!",
+                stuck_signal.join("/")
+            )
+        }
+        faulty_module
+    }
 }
 
 impl NetlistSerializer for Module {
@@ -210,8 +274,14 @@ impl Gate {
     pub fn get_ports(&self) -> &Vec<(String, String)> {
         &self.ports
     }
+    pub fn get_ports_mut(&mut self) -> &mut Vec<(String, String)> {
+        &mut self.ports
+    }
     pub fn get_port_by_name(&self, port_name: &String) -> Option<&(String, String)> {
         self.ports.iter().find(|(port, _)| port.eq(port_name))
+    }
+    pub fn get_port_by_name_mut(&mut self, port_name: &String) -> Option<&mut (String, String)> {
+        self.ports.iter_mut().find(|(port, _)| port.eq(port_name))
     }
 }
 
@@ -230,10 +300,28 @@ impl NetlistSerializer for Gate {
 
 #[cfg(test)]
 mod test {
+    use crate::verilog::netlist_serializer::NetlistSerializer;
     use crate::verilog::Verilog;
 
     #[test]
     fn expansion_config() {
-        Verilog::from_file("b15_net.v".to_string()).ok();
+        let verilog = Verilog::from_file(String::from("b15_net.v")).ok().unwrap();
+    }
+
+    #[test]
+    fn insert_fault() {
+        let verilog = Verilog::from_file(String::from("b02_net.v")).ok().unwrap();
+        let module = verilog.modules.get(0).unwrap();
+        let fmodule =
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), 0);
+        eprintln!("{}", fmodule.gen());
+        let fmodule =
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/Z"), 0);
+        eprintln!("{}", fmodule.gen());
+        let fmodule =
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("linea"), 0);
+        eprintln!("{}", fmodule.gen());
+        let fmodule = module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("u"), 0);
+        eprintln!("{}", fmodule.gen());
     }
 }
