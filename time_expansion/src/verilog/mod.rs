@@ -131,15 +131,15 @@ impl Module {
         if stuck_signal.len() == 1 {
             // top level port stuck fault
             let stuck_wire = stuck_signal[0].to_string();
-            let mut stuck_port_wire = faulty_module
-                .get_gates()
-                .clone()
-                .into_iter()
-                .filter(|(ident, gate)| {
-                    gate.get_ports().iter().any(|(_, wire)| stuck_wire.eq(wire))
-                })
-                .collect::<Vec<_>>();
-            for (ident, mut gate) in stuck_port_wire {
+            let mut stuck_gates =
+                faulty_module
+                    .get_gates()
+                    .clone()
+                    .into_iter()
+                    .filter(|(ident, gate)| {
+                        gate.get_ports().iter().any(|(_, wire)| stuck_wire.eq(wire))
+                    });
+            for (ident, mut gate) in stuck_gates {
                 for (port, wire) in gate.get_ports_mut() {
                     if stuck_wire.eq(wire) {
                         // TODO: Remove "Z" or "Y" Magic, which means output port!
@@ -163,7 +163,10 @@ impl Module {
             let mut stuck_gate = faulty_module.gates.get(&stuck_gate_ident).unwrap().clone();
             let (_, wire) = stuck_gate.get_port_by_name_mut(&stuck_port_name).unwrap();
             // TODO: Remove "Z" or "Y" Magic, which means output port!
-            if stuck_port_name.contains("Z") || stuck_port_name.contains("Y") {
+            if stuck_port_name.contains("Z")
+                || stuck_port_name.contains("Y")
+                || stuck_port_name.contains("Q")
+            {
                 let opened_wire = format!("{}_drained", wire);
                 faulty_module.push_wire(&SignalRange::Single, opened_wire.clone());
                 faulty_module.push_assign(format!("{} = {}", wire, sa_value));
@@ -312,6 +315,7 @@ mod test {
     fn insert_fault() {
         let verilog = Verilog::from_file(String::from("b02_net.v")).ok().unwrap();
         let module = verilog.modules.get(0).unwrap();
+        eprintln!("{}", module.gen());
         let fmodule =
             module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), 0);
         eprintln!("{}", fmodule.gen());
