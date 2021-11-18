@@ -5,7 +5,8 @@ use crate::time_expansion::config::ExpansionConfig;
 use crate::verilog::ast::parser::Parser;
 use crate::verilog::ast::token::Lexer;
 use crate::verilog::netlist_serializer::NetlistSerializer;
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -61,16 +62,24 @@ impl NetlistSerializer for Verilog {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Module {
     name: String,
-    inputs: HashMap<String, SignalRange>,
-    outputs: HashMap<String, SignalRange>,
-    wires: HashMap<String, SignalRange>,
+    inputs: BTreeMap<String, SignalRange>,
+    outputs: BTreeMap<String, SignalRange>,
+    wires: BTreeMap<String, SignalRange>,
     assigns: Vec<String>,
-    gates: HashMap<String, Gate>,
+    gates: BTreeMap<String, Gate>,
 }
 
 impl Module {
-    pub fn set_name(&mut self, name: String) {
-        self.name = name
+    pub fn new_with_name(name: String) -> Self {
+        let mut m = Module::default();
+        *m.get_name_mut() = name;
+        m
+    }
+    pub fn get_name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+    pub fn get_name(&self) -> &String {
+        &self.name
     }
     pub fn push_input(&mut self, range: SignalRange, input: String) {
         self.inputs.insert(input, range);
@@ -96,24 +105,17 @@ impl Module {
     pub fn remove_gate(&mut self, ident: &String) -> Option<Gate> {
         self.gates.remove(ident)
     }
-    pub fn get_gates(&self) -> &HashMap<String, Gate> {
+    pub fn get_inputs(&self) -> &BTreeMap<String, SignalRange> {
+        &self.inputs
+    }
+    pub fn get_outputs(&self) -> &BTreeMap<String, SignalRange> {
+        &self.outputs
+    }
+    pub fn get_gates(&self) -> &BTreeMap<String, Gate> {
         &self.gates
     }
-    pub fn get_ports(&self) -> Vec<(&String, &SignalRange)> {
+    pub fn ports(&self) -> Vec<(&String, &SignalRange)> {
         self.inputs.iter().chain(&self.outputs).collect()
-    }
-    fn wires_by_signal_range(
-        wires: &HashMap<String, SignalRange>,
-    ) -> HashMap<SignalRange, Vec<String>> {
-        let mut signal_range_wires: HashMap<SignalRange, Vec<String>> = HashMap::new();
-        for (ident, range) in wires {
-            if let Some(w) = signal_range_wires.get_mut(range) {
-                w.push(ident.clone());
-            } else {
-                signal_range_wires.insert(range.clone(), vec![ident.clone()]);
-            }
-        }
-        signal_range_wires
     }
     pub fn insert_stuck_at_fault(
         &self,
@@ -186,6 +188,27 @@ impl Module {
         }
         faulty_module
     }
+    pub fn to_gate(&self) -> Gate {
+        let mut gate = Gate::default();
+        gate.set_name(self.get_name().clone());
+        for (port, _) in self.ports() {
+            gate.push_port(PortWire::Wire(port.clone(), port.clone()));
+        }
+        gate
+    }
+    fn wires_by_signal_range(
+        wires: &BTreeMap<String, SignalRange>,
+    ) -> HashMap<SignalRange, Vec<String>> {
+        let mut signal_range_wires: HashMap<SignalRange, Vec<String>> = HashMap::new();
+        for (ident, range) in wires {
+            if let Some(w) = signal_range_wires.get_mut(range) {
+                w.push(ident.clone());
+            } else {
+                signal_range_wires.insert(range.clone(), vec![ident.clone()]);
+            }
+        }
+        signal_range_wires
+    }
 }
 
 impl NetlistSerializer for Module {
@@ -194,7 +217,7 @@ impl NetlistSerializer for Module {
             "module {ident} ( {ports} );\n",
             ident = self.name,
             ports = self
-                .get_ports()
+                .ports()
                 .into_iter()
                 .map(|(ident, _)| ident.clone())
                 .collect::<Vec<_>>()
@@ -246,6 +269,29 @@ impl NetlistSerializer for SignalRange {
     }
 }
 
+impl PartialOrd<Self> for SignalRange {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SignalRange {
+    fn cmp(&self, other: &Self) -> Ordering {
+        use Ordering::*;
+        use SignalRange::*;
+        match self {
+            Single => match other {
+                Single => Equal,
+                Multiple(_) => Less,
+            },
+            Multiple(lrange) => match other {
+                Single => Equal,
+                Multiple(rrange) => lrange.cmp(rrange),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Gate {
     name: String,
@@ -273,6 +319,13 @@ impl Gate {
     }
     pub fn get_port_by_name_mut(&mut self, port_name: &String) -> Option<&mut PortWire> {
         self.ports.iter_mut().find(|pw| pw.port_is(port_name))
+    }
+    pub fn remove_port_by_name(&mut self, port_name: &String) -> Option<PortWire> {
+        if let Some(i) = self.ports.iter().position(|r| r.port_is(port_name)) {
+            Some(self.ports.remove(i))
+        } else {
+            None
+        }
     }
 }
 

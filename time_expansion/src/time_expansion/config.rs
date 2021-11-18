@@ -135,8 +135,13 @@ impl ExpansionConfig {
             })
             .collect()
     }
-    pub fn extract_combinational_part(&self, module: &Module) -> Module {
+    pub fn extract_combinational_part(
+        &self,
+        module: &Module,
+    ) -> (Module, Vec<String>, Vec<String>) {
         let mut combinational_part = module.clone();
+        let mut pseudo_primary_inputs = Vec::new();
+        let mut pseudo_primary_outputs = Vec::new();
         self.extract_ff_gates(&module)
             .into_iter()
             .enumerate()
@@ -170,10 +175,95 @@ impl ExpansionConfig {
                         }
                     }
                 }
-                for _ in ff_def.control.iter() {}
                 combinational_part.remove_gate(&ident);
+
+                pseudo_primary_inputs.push(ppi);
+                pseudo_primary_outputs.push(ppo);
             });
-        combinational_part
+        for clock in self.clock_pins.iter() {
+            combinational_part.remove_input(clock)
+        }
+        for (test_s_pin, _) in module
+            .ports()
+            .into_iter()
+            .filter(|(pin, _)| pin.contains("test_s"))
+        {
+            combinational_part.remove_input(test_s_pin);
+            combinational_part.remove_output(test_s_pin);
+        }
+        (
+            combinational_part,
+            pseudo_primary_inputs,
+            pseudo_primary_outputs,
+        )
+    }
+    pub fn time_expand(&self) -> Verilog {
+        match self.expand_method {
+            Some(Broadside) => {
+                let verilog = Verilog::from_config(self);
+                let top_module = verilog.get_module(&self.top_module).unwrap();
+                let (mut clone_circuit, ppis, ppos) = self.extract_combinational_part(top_module);
+                *clone_circuit.get_name_mut() = format!("{}_cmb", self.top_module);
+                let mut gate_c1 = clone_circuit.to_gate();
+                let mut gate_c2 = clone_circuit.to_gate();
+                let mut expanded_module = Module::new_with_name(format!("{}_bs", self.top_module));
+
+                for (input, range) in clone_circuit.get_inputs().iter() {
+                    *gate_c1.get_port_by_name_mut(&input).unwrap().get_wire_mut() =
+                        format!("{}_c1", input);
+                    expanded_module.push_input(range.clone(), format!("{}_c1", input));
+                }
+                for (output, range) in clone_circuit.get_outputs().iter() {
+                    *gate_c1
+                        .get_port_by_name_mut(&output)
+                        .unwrap()
+                        .get_wire_mut() = format!("{}_c1", output);
+                    if ppos.iter().any(|ppo| output.contains(ppo)) {
+                        expanded_module.push_wire(range.clone(), format!("{}_c1", output));
+                    } else {
+                        gate_c1.remove_port_by_name(output);
+                    }
+                }
+
+                for (ppi, ppo) in ppis.iter().zip(ppos.iter()) {
+                    expanded_module.push_assign(format!("{}_c2 = {}_c1", ppi, ppo));
+                }
+
+                for (input, range) in clone_circuit.get_inputs().iter() {
+                    *gate_c2.get_port_by_name_mut(&input).unwrap().get_wire_mut() =
+                        format!("{}_c2", input);
+                    if !ppis.iter().any(|ppi| input.contains(ppi)) {
+                        if self.use_primary_io {
+                            expanded_module.push_input(range.clone(), format!("{}_c2", input));
+                        } else {
+                            expanded_module.push_wire(range.clone(), format!("{}_c2", input));
+                            expanded_module.push_assign(format!("{}_c2 = {}_c1", input, input));
+                        }
+                    }
+                }
+                for (output, range) in clone_circuit.get_outputs().iter() {
+                    *gate_c2
+                        .get_port_by_name_mut(&output)
+                        .unwrap()
+                        .get_wire_mut() = format!("{}_c2", output);
+                    if self.use_primary_io || ppos.iter().any(|ppo| output.contains(ppo)) {
+                        expanded_module.push_output(range.clone(), format!("{}_c2", output));
+                    } else {
+                        gate_c2.remove_port_by_name(output);
+                    }
+                }
+                expanded_module.push_gate(String::from("c1"), gate_c1);
+                expanded_module.push_gate(String::from("c2"), gate_c2);
+
+                let mut verilog = Verilog::default();
+                verilog.push_module(expanded_module);
+                verilog.push_module(clone_circuit);
+
+                verilog
+            }
+            Some(SkewedLoad) => Verilog::default(),
+            _ => Verilog::default(),
+        }
     }
 }
 
@@ -310,6 +400,7 @@ impl InvDefinition {
 mod test {
     use crate::time_expansion::config::ExpansionMethod::Broadside;
     use crate::time_expansion::config::{ExpansionConfig, FFDefinition, InvDefinition};
+    use crate::verilog::netlist_serializer::NetlistSerializer;
     use crate::verilog::Verilog;
 
     #[test]
@@ -371,6 +462,16 @@ mod test {
         let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
         let verilog = Verilog::from_config(&ec);
         let m = verilog.get_module(&ec.top_module).unwrap();
-        let c = ec.extract_combinational_part(m);
+        let (c, ppis, ppos) = ec.extract_combinational_part(m);
+        eprintln!("{}", c.gen());
+        eprintln!("ppis = {:?}", ppis);
+        eprintln!("ppos = {:?}", ppos);
+    }
+
+    #[test]
+    pub fn expand_circuit() {
+        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
+        let v = ec.time_expand();
+        eprintln!("{}", v.gen());
     }
 }

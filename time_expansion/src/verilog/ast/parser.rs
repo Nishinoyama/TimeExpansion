@@ -109,7 +109,7 @@ impl Parser {
     fn module(&mut self) -> Result<Option<Module>, String> {
         if let Some(_) = self.consume_reserved_token("module")? {
             let mut module = Module::default();
-            module.set_name(self.expect_identifier()?.to_string());
+            *module.get_name_mut() = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             self.declarations(None)?;
             self.expect_reserved_token(")")?;
