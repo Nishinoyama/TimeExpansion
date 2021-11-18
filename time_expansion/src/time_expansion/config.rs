@@ -68,11 +68,11 @@ impl ExpansionConfig {
                 self.equivalent_check = cap.get(1).unwrap().as_str().to_string();
             } else if let Some(cap) = ff_definitions_regex.captures(line) {
                 let mut ff_define = FFDefinition::from_file_iter(&mut line_iter);
-                ff_define.set_name(&cap.get(1).unwrap().as_str().trim().to_string());
+                *ff_define.get_name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
                 self.ff_definitions.push(ff_define);
             } else if let Some(cap) = inv_definitions_regex.captures(line) {
                 let mut inv_define = InvDefinition::from_file_iter(&mut line_iter);
-                inv_define.set_name(&cap.get(1).unwrap().as_str().trim().to_string());
+                *inv_define.get_name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
                 self.inv_definition = inv_define;
             } else if empty_line_regex.is_match(line) {
             } else {
@@ -304,8 +304,8 @@ pub struct FFDefinition {
 }
 
 impl FFDefinition {
-    pub fn set_name(&mut self, name: &String) {
-        self.name = name.clone();
+    pub fn get_name_mut(&mut self) -> &mut String {
+        &mut self.name
     }
 
     pub fn from_file_iter(line_iter: &mut Enumerate<Iter<String>>) -> Self {
@@ -357,8 +357,8 @@ pub struct InvDefinition {
 }
 
 impl InvDefinition {
-    pub fn set_name(&mut self, name: &String) {
-        self.name = name.clone();
+    pub fn get_name_mut(&mut self) -> &mut String {
+        &mut self.name
     }
     pub fn is_empty(&self) -> bool {
         self.name.is_empty() || self.input.is_empty() || self.output.is_empty()
@@ -389,7 +389,7 @@ impl InvDefinition {
     }
     fn to_gate(&self, input_wire: &String, output_wire: &String) -> Gate {
         let mut inv_gate = Gate::default();
-        inv_gate.set_name(self.name.clone());
+        *inv_gate.get_name_mut() = self.name.clone();
         inv_gate.push_port(PortWire::Wire(self.input.clone(), input_wire.clone()));
         inv_gate.push_port(PortWire::Wire(self.output.clone(), output_wire.clone()));
         inv_gate

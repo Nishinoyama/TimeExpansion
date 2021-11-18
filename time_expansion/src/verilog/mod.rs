@@ -190,7 +190,7 @@ impl Module {
     }
     pub fn to_gate(&self) -> Gate {
         let mut gate = Gate::default();
-        gate.set_name(self.get_name().clone());
+        *gate.get_name_mut() = self.get_name().clone();
         for (port, _) in self.ports() {
             gate.push_port(PortWire::Wire(port.clone(), port.clone()));
         }
@@ -299,8 +299,8 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub fn set_name(&mut self, name: String) {
-        self.name = name;
+    pub fn get_name_mut(&mut self) -> &mut String {
+        &mut self.name
     }
     pub fn get_name(&self) -> &String {
         &self.name

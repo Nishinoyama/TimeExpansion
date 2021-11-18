@@ -151,7 +151,7 @@ impl Parser {
                 .for_each(|s| module.push_assign(s));
         } else if let Some(gate_name) = self.consume_identifier_token()? {
             let mut gate = Gate::default();
-            gate.set_name(gate_name.to_string());
+            *gate.get_name_mut() = gate_name.to_string();
             let ident = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             module.push_gate(ident, self.gate_ports(gate)?);
