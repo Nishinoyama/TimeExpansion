@@ -1,4 +1,5 @@
 use crate::verilog::ast::token::Token;
+use crate::verilog::PortWire::{Constant, Wire};
 use crate::verilog::{Gate, Module, SignalRange, Verilog};
 
 #[derive(Clone, Debug)]
@@ -110,7 +111,7 @@ impl Parser {
             let mut module = Module::default();
             module.set_name(self.expect_identifier()?.to_string());
             self.expect_reserved_token("(")?;
-            self.declarations(&None)?;
+            self.declarations(None)?;
             self.expect_reserved_token(")")?;
             self.expect_reserved_token(";")?;
             while self.statement(&mut module)?.is_some() {}
@@ -128,22 +129,22 @@ impl Parser {
     fn statement(&mut self, module: &mut Module) -> Result<Option<()>, String> {
         if let Some(_) = self.consume_reserved_token("input")? {
             let range = self.range()?;
-            let (range, signals) = self.declarations(&range)?;
+            let (range, signals) = self.declarations(range)?;
             signals
                 .into_iter()
-                .for_each(|s| module.push_input(&range, s));
+                .for_each(|s| module.push_input(range.clone(), s));
         } else if let Some(_) = self.consume_reserved_token("output")? {
             let range = self.range()?;
-            let (range, signals) = self.declarations(&range)?;
+            let (range, signals) = self.declarations(range)?;
             signals
                 .into_iter()
-                .for_each(|s| module.push_output(&range, s));
+                .for_each(|s| module.push_output(range.clone(), s));
         } else if let Some(_) = self.consume_reserved_token("wire")? {
             let range = self.range()?;
-            let (range, signals) = self.declarations(&range)?;
+            let (range, signals) = self.declarations(range)?;
             signals
                 .into_iter()
-                .for_each(|s| module.push_wire(&range, s));
+                .for_each(|s| module.push_wire(range.clone(), s));
         } else if let Some(_) = self.consume_reserved_token("assign")? {
             self.expressions()?
                 .into_iter()
@@ -166,7 +167,7 @@ impl Parser {
     /// ```
     fn declarations(
         &mut self,
-        range: &Option<(String, String)>,
+        range: Option<(String, String)>,
     ) -> Result<(SignalRange, Vec<String>), String> {
         use SignalRange::*;
         let signal_range = if let Some(sr) = range {
@@ -251,10 +252,10 @@ impl Parser {
             let port = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             if let Some(wire) = self.consume_number_token()? {
-                gate.push_port(port, wire.to_string());
+                gate.push_port(Constant(port, wire.to_string()));
             } else {
                 let wire = self.identifier_range()?.to_string();
-                gate.push_port(port, wire);
+                gate.push_port(Wire(port, wire));
             }
             self.expect_reserved_token(")")?;
             if self.consume_reserved_token(",")?.is_none() {

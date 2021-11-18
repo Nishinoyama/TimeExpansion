@@ -1,12 +1,21 @@
 pub trait NetlistSerializer {
     fn gen(&self) -> String;
-    fn multi_gen<T: IntoIterator<Item = String> + Clone>(iterable: &T, joiner: &str) -> String {
+    fn multi_gen<T: NetlistSerializer, U: IntoIterator<Item = T> + Clone>(
+        iterable: &U,
+        joiner: &str,
+    ) -> String {
         iterable
             .clone()
             .into_iter()
-            .map(|s| s)
+            .map(|s| s.gen())
             .collect::<Vec<String>>()
             .join(joiner)
+    }
+}
+
+impl NetlistSerializer for String {
+    fn gen(&self) -> String {
+        self.clone()
     }
 }
 

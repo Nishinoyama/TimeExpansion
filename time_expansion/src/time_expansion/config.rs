@@ -1,5 +1,5 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
-use crate::verilog::{Gate, Module, SignalRange};
+use crate::verilog::{Gate, Module, PortWire, SignalRange, Verilog};
 use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
@@ -144,21 +144,29 @@ impl ExpansionConfig {
                 let ppi = format!("ppi_{}_{}", i + 1, ident);
                 let ppo = format!("ppo_{}_{}", i + 1, ident);
                 for port in ff_def.data_in.iter() {
-                    if let Some((_, wire)) = ff_gate.get_port_by_name(port) {
-                        combinational_part.push_assign(format!("{} = {}", ppo, wire));
-                        combinational_part.push_output(&SignalRange::Single, ppo.clone());
+                    if let Some(port_wire) = ff_gate.get_port_by_name(port) {
+                        combinational_part.push_assign(format!(
+                            "{ppo} = {wire_from_port}",
+                            ppo = ppo,
+                            wire_from_port = port_wire.get_wire(),
+                        ));
+                        combinational_part.push_output(SignalRange::Single, ppo.clone());
                     }
                 }
                 for port in ff_def.data_out.iter() {
-                    if let Some((_, wire)) = ff_gate.get_port_by_name(port) {
-                        combinational_part.push_input(&SignalRange::Single, ppi.clone());
+                    if let Some(port_wire) = ff_gate.get_port_by_name(port) {
+                        combinational_part.push_input(SignalRange::Single, ppi.clone());
                         if port.contains("N") {
                             combinational_part.push_gate(
                                 format!("UN{}", i + 1),
-                                self.inv_definition.to_gate(&ppi, wire),
+                                self.inv_definition.to_gate(&ppi, port_wire.get_wire()),
                             );
                         } else {
-                            combinational_part.push_assign(format!("{} = {}", wire, ppi));
+                            combinational_part.push_assign(format!(
+                                "{} = {}",
+                                port_wire.get_wire(),
+                                ppi
+                            ));
                         }
                     }
                 }
@@ -292,8 +300,8 @@ impl InvDefinition {
     fn to_gate(&self, input_wire: &String, output_wire: &String) -> Gate {
         let mut inv_gate = Gate::default();
         inv_gate.set_name(self.name.clone());
-        inv_gate.push_port(self.input.clone(), input_wire.clone());
-        inv_gate.push_port(self.output.clone(), output_wire.clone());
+        inv_gate.push_port(PortWire::Wire(self.input.clone(), input_wire.clone()));
+        inv_gate.push_port(PortWire::Wire(self.output.clone(), output_wire.clone()));
         inv_gate
     }
 }
@@ -302,7 +310,6 @@ impl InvDefinition {
 mod test {
     use crate::time_expansion::config::ExpansionMethod::Broadside;
     use crate::time_expansion::config::{ExpansionConfig, FFDefinition, InvDefinition};
-    use crate::verilog::netlist_serializer::NetlistSerializer;
     use crate::verilog::Verilog;
 
     #[test]

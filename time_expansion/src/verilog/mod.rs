@@ -5,7 +5,7 @@ use crate::time_expansion::config::ExpansionConfig;
 use crate::verilog::ast::parser::Parser;
 use crate::verilog::ast::token::Lexer;
 use crate::verilog::netlist_serializer::NetlistSerializer;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -61,9 +61,9 @@ impl NetlistSerializer for Verilog {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Module {
     name: String,
-    inputs: HashMap<SignalRange, BTreeSet<String>>,
-    outputs: HashMap<SignalRange, BTreeSet<String>>,
-    wires: HashMap<SignalRange, BTreeSet<String>>,
+    inputs: HashMap<String, SignalRange>,
+    outputs: HashMap<String, SignalRange>,
+    wires: HashMap<String, SignalRange>,
     assigns: Vec<String>,
     gates: HashMap<String, Gate>,
 }
@@ -72,39 +72,20 @@ impl Module {
     pub fn set_name(&mut self, name: String) {
         self.name = name
     }
-    pub fn push_input(&mut self, range: &SignalRange, input: String) {
-        if let Some(inputs) = self.inputs.get_mut(range) {
-            inputs.insert(input);
-        } else {
-            self.inputs
-                .insert(range.clone(), vec![input].into_iter().collect());
-        }
+    pub fn push_input(&mut self, range: SignalRange, input: String) {
+        self.inputs.insert(input, range);
     }
     pub fn remove_input(&mut self, input: &String) {
-        self.inputs.iter_mut().for_each(|(_, inputs)| {
-            inputs.remove(input);
-        });
+        self.inputs.remove(input);
     }
-    pub fn push_output(&mut self, range: &SignalRange, output: String) {
-        if let Some(outputs) = self.outputs.get_mut(range) {
-            outputs.insert(output);
-        } else {
-            self.outputs
-                .insert(range.clone(), vec![output].into_iter().collect());
-        }
+    pub fn push_output(&mut self, range: SignalRange, output: String) {
+        self.outputs.insert(output, range);
     }
     pub fn remove_output(&mut self, output: &String) {
-        self.outputs.iter_mut().for_each(|(_, outputs)| {
-            outputs.remove(output);
-        });
+        self.outputs.remove(output);
     }
-    pub fn push_wire(&mut self, range: &SignalRange, wire: String) {
-        if let Some(wires) = self.wires.get_mut(range) {
-            wires.insert(wire);
-        } else {
-            self.wires
-                .insert(range.clone(), vec![wire].into_iter().collect());
-        }
+    pub fn push_wire(&mut self, range: SignalRange, wire: String) {
+        self.wires.insert(wire, range);
     }
     pub fn push_assign(&mut self, assign: String) {
         self.assigns.push(assign);
@@ -117,6 +98,22 @@ impl Module {
     }
     pub fn get_gates(&self) -> &HashMap<String, Gate> {
         &self.gates
+    }
+    pub fn get_ports(&self) -> Vec<(&String, &SignalRange)> {
+        self.inputs.iter().chain(&self.outputs).collect()
+    }
+    fn wires_by_signal_range(
+        wires: &HashMap<String, SignalRange>,
+    ) -> HashMap<SignalRange, Vec<String>> {
+        let mut signal_range_wires: HashMap<SignalRange, Vec<String>> = HashMap::new();
+        for (ident, range) in wires {
+            if let Some(w) = signal_range_wires.get_mut(range) {
+                w.push(ident.clone());
+            } else {
+                signal_range_wires.insert(range.clone(), vec![ident.clone()]);
+            }
+        }
+        signal_range_wires
     }
     pub fn insert_stuck_at_fault(
         &self,
@@ -131,21 +128,24 @@ impl Module {
         if stuck_signal.len() == 1 {
             // top level port stuck fault
             let stuck_wire = stuck_signal[0].to_string();
-            let mut stuck_gates =
-                faulty_module
-                    .get_gates()
-                    .clone()
-                    .into_iter()
-                    .filter(|(ident, gate)| {
-                        gate.get_ports().iter().any(|(_, wire)| stuck_wire.eq(wire))
-                    });
+            let stuck_gates = faulty_module
+                .get_gates()
+                .clone()
+                .into_iter()
+                .filter(|(_, gate)| {
+                    gate.get_ports()
+                        .iter()
+                        .any(|port_wire| stuck_wire.eq(port_wire.get_wire()))
+                });
             for (ident, mut gate) in stuck_gates {
-                for (port, wire) in gate.get_ports_mut() {
+                for port_wire in gate.get_ports_mut() {
+                    let port = port_wire.get_port().clone();
+                    let wire = port_wire.get_wire_mut();
                     if stuck_wire.eq(wire) {
-                        // TODO: Remove "Z" or "Y" Magic, which means output port!
+                        // TODO: Remove "Z" or "Y" Magic which means output port!
                         if port.contains("Z") || port.contains("Y") || port.contains("Q") {
                             let opened_wire = format!("{}_drained", wire);
-                            faulty_module.push_wire(&SignalRange::Single, opened_wire.clone());
+                            faulty_module.push_wire(SignalRange::Single, opened_wire.clone());
                             faulty_module.push_assign(format!("{} = {}", wire, sa_value));
                             *wire = opened_wire.clone();
                         } else {
@@ -161,14 +161,15 @@ impl Module {
             let stuck_gate_ident = stuck_signal[0].to_string();
             let stuck_port_name = stuck_signal[1].to_string();
             let mut stuck_gate = faulty_module.gates.get(&stuck_gate_ident).unwrap().clone();
-            let (_, wire) = stuck_gate.get_port_by_name_mut(&stuck_port_name).unwrap();
-            // TODO: Remove "Z" or "Y" Magic, which means output port!
+            let port_wire = stuck_gate.get_port_by_name_mut(&stuck_port_name).unwrap();
+            let wire = port_wire.get_wire_mut();
+            // TODO: Remove "Z" or "Y" Magic which means output port!
             if stuck_port_name.contains("Z")
                 || stuck_port_name.contains("Y")
                 || stuck_port_name.contains("Q")
             {
                 let opened_wire = format!("{}_drained", wire);
-                faulty_module.push_wire(&SignalRange::Single, opened_wire.clone());
+                faulty_module.push_wire(SignalRange::Single, opened_wire.clone());
                 faulty_module.push_assign(format!("{} = {}", wire, sa_value));
                 *wire = opened_wire.clone();
             } else {
@@ -193,37 +194,24 @@ impl NetlistSerializer for Module {
             "module {ident} ( {ports} );\n",
             ident = self.name,
             ports = self
-                .inputs
-                .iter()
-                .chain(self.outputs.iter())
-                .map(|(_, signals)| Self::multi_gen(signals, ", "),)
+                .get_ports()
+                .into_iter()
+                .map(|(ident, _)| ident.clone())
                 .collect::<Vec<_>>()
                 .join(", "),
         );
-        for (r, s) in &self.inputs {
-            if !s.is_empty() {
+        let wires = vec![
+            (&self.inputs, "input"),
+            (&self.outputs, "output"),
+            (&self.wires, "wire"),
+        ];
+        for (wires, wire_type) in wires {
+            for (r, s) in Self::wires_by_signal_range(&wires) {
                 module += &format!(
-                    "  input {range}{inputs};\n",
+                    "  {wire_type} {range}{wires};\n",
+                    wire_type = wire_type,
                     range = r.gen(),
-                    inputs = Self::multi_gen(s, ", "),
-                )
-            }
-        }
-        for (r, s) in &self.outputs {
-            if !s.is_empty() {
-                module += &format!(
-                    "  output {range}{outputs};\n",
-                    range = r.gen(),
-                    outputs = Self::multi_gen(s, ", "),
-                )
-            }
-        }
-        for (r, s) in &self.wires {
-            if !s.is_empty() {
-                module += &format!(
-                    "  wire {range}{wires};\n",
-                    range = r.gen(),
-                    wires = Self::multi_gen(s, ", "),
+                    wires = Self::multi_gen(&s, ", "),
                 )
             }
         }
@@ -261,7 +249,7 @@ impl NetlistSerializer for SignalRange {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Gate {
     name: String,
-    ports: Vec<(String, String)>,
+    ports: Vec<PortWire>,
 }
 
 impl Gate {
@@ -271,33 +259,65 @@ impl Gate {
     pub fn get_name(&self) -> &String {
         &self.name
     }
-    pub fn push_port(&mut self, port: String, wire: String) {
-        self.ports.push((port, wire));
+    pub fn push_port(&mut self, port_wire: PortWire) {
+        self.ports.push(port_wire);
     }
-    pub fn get_ports(&self) -> &Vec<(String, String)> {
+    pub fn get_ports(&self) -> &Vec<PortWire> {
         &self.ports
     }
-    pub fn get_ports_mut(&mut self) -> &mut Vec<(String, String)> {
+    pub fn get_ports_mut(&mut self) -> &mut Vec<PortWire> {
         &mut self.ports
     }
-    pub fn get_port_by_name(&self, port_name: &String) -> Option<&(String, String)> {
-        self.ports.iter().find(|(port, _)| port.eq(port_name))
+    pub fn get_port_by_name(&self, port_name: &String) -> Option<&PortWire> {
+        self.ports.iter().find(|pw| pw.port_is(port_name))
     }
-    pub fn get_port_by_name_mut(&mut self, port_name: &String) -> Option<&mut (String, String)> {
-        self.ports.iter_mut().find(|(port, _)| port.eq(port_name))
+    pub fn get_port_by_name_mut(&mut self, port_name: &String) -> Option<&mut PortWire> {
+        self.ports.iter_mut().find(|pw| pw.port_is(port_name))
     }
 }
 
 impl NetlistSerializer for Gate {
     fn gen(&self) -> String {
-        format!(
-            "( {} )",
-            self.ports
-                .iter()
-                .map(|(port, wire)| format!(".{}({})", port, wire))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        format!("( {} )", Self::multi_gen(&self.ports, ", "))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PortWire {
+    Constant(String, String),
+    Wire(String, String),
+}
+
+impl PortWire {
+    pub fn get_wire(&self) -> &String {
+        match self {
+            Self::Wire(_, wire) => wire,
+            Self::Constant(_, wire) => wire,
+        }
+    }
+    pub fn get_wire_mut(&mut self) -> &mut String {
+        match self {
+            Self::Wire(_, wire) => wire,
+            Self::Constant(_, wire) => wire,
+        }
+    }
+    pub fn get_port(&self) -> &String {
+        match self {
+            Self::Wire(port, _) => port,
+            Self::Constant(port, _) => port,
+        }
+    }
+    pub fn port_is(&self, port_name: &String) -> bool {
+        match self {
+            Self::Wire(port, _) => port.eq(port_name),
+            Self::Constant(port, _) => port.eq(port_name),
+        }
+    }
+}
+
+impl NetlistSerializer for PortWire {
+    fn gen(&self) -> String {
+        format!(".{}({})", self.get_port(), self.get_wire())
     }
 }
 
