@@ -108,6 +108,8 @@ impl ExpansionConfig {
             Ok(())
         }
     }
+    /// Generate config from file specifying config.
+    /// [`Err`]\([`String`]) if file cannot compiled or is wrong.
     pub fn from_file(file_name: &str) -> Result<Self, String> {
         let mut config = Self::default();
         let lines = config.read_file(file_name).unwrap();
@@ -115,6 +117,7 @@ impl ExpansionConfig {
         config.verification()?;
         Ok(config)
     }
+    /// Returns input file name specified by config.
     pub fn get_input_file(&self) -> &String {
         &self.input_file
     }
@@ -135,6 +138,9 @@ impl ExpansionConfig {
             })
             .collect()
     }
+    /// Generates combinational part from full scan designed circuitry module, their Pseudo Inputs' and Pseudo Outputs' port name.
+    /// FFs', in the module, inputs and outputs become the extracted combinational module's inputs and outputs respectively.
+    /// Such inputs and outputs are called Pseudo Inputs/Outputs
     pub fn extract_combinational_part(
         &self,
         module: &Module,
@@ -197,6 +203,9 @@ impl ExpansionConfig {
             pseudo_primary_outputs,
         )
     }
+    /// Generates time expansion model from full scan designed circuitry module.
+    /// Expansion method is preferred by [`ExpansionMethod`]
+    /// if not `use_primary_io`, primary inputs will be restricted and primary outputs will be masked.
     pub fn time_expand(&self) -> Verilog {
         match self.expand_method {
             Some(Broadside) => {
@@ -274,6 +283,17 @@ pub enum ExpansionMethod {
 }
 
 impl ExpansionMethod {
+    /// Returns time expansion model by their name.
+    /// If name doesn't match any models, return [`None`]
+    ///
+    /// + Broadside
+    ///     + broadside
+    ///     + bs
+    ///     + loc
+    /// + Skewedload
+    ///     + skewedload
+    ///     + sl
+    ///     + los
     pub fn from_string(method: &str) -> Option<Self> {
         let method = method.to_lowercase();
         let broadsides = ["broadside", "bs", "loc"];
@@ -297,17 +317,13 @@ impl Default for ExpansionMethod {
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct FFDefinition {
-    pub(crate) name: String,
-    pub(crate) data_in: Vec<String>,
-    pub(crate) data_out: Vec<String>,
-    pub(crate) control: Vec<String>,
+    name: String,
+    data_in: Vec<String>,
+    data_out: Vec<String>,
+    control: Vec<String>,
 }
 
 impl FFDefinition {
-    pub fn get_name_mut(&mut self) -> &mut String {
-        &mut self.name
-    }
-
     pub fn from_file_iter(line_iter: &mut Enumerate<Iter<String>>) -> Self {
         let mut ff_defines = Self::default();
         let data_in_regex = Regex::new(r"\s*data-in\s+(.+)\s*").unwrap();
@@ -347,22 +363,20 @@ impl FFDefinition {
         }
         return ff_defines;
     }
+
+    pub fn get_name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct InvDefinition {
-    pub(crate) name: String,
-    pub(crate) input: String,
-    pub(crate) output: String,
+    name: String,
+    input: String,
+    output: String,
 }
 
 impl InvDefinition {
-    pub fn get_name_mut(&mut self) -> &mut String {
-        &mut self.name
-    }
-    pub fn is_empty(&self) -> bool {
-        self.name.is_empty() || self.input.is_empty() || self.output.is_empty()
-    }
     pub fn from_file_iter(line_iter: &mut Enumerate<Iter<String>>) -> Self {
         let mut inv_defines = Self::default();
         let input_regex = Regex::new(r"\s*input\s+(\w+)\s*").unwrap();
@@ -386,6 +400,14 @@ impl InvDefinition {
             }
         }
         return inv_defines;
+    }
+
+    pub fn get_name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+    /// Return if any of field is empty.
+    pub fn is_empty(&self) -> bool {
+        self.name.is_empty() || self.input.is_empty() || self.output.is_empty()
     }
     fn to_gate(&self, input_wire: &String, output_wire: &String) -> Gate {
         let mut inv_gate = Gate::default();

@@ -1,4 +1,4 @@
-pub mod ast;
+mod ast;
 pub mod netlist_serializer;
 
 use crate::time_expansion::config::ExpansionConfig;

@@ -9,6 +9,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    /// Generates `Parser` with [`Vec`] of [`Token`]s
     pub fn from_tokens(tokens: Vec<Token>) -> Self {
         Self {
             tokens: tokens.into_iter().rev().collect(),
@@ -93,6 +94,8 @@ impl Parser {
             ))
         }
     }
+    /// Generates [`Verilog`] netlist.
+    ///
     /// ```regex
     /// verilog := module*
     /// ```

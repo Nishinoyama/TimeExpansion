@@ -1,19 +1,22 @@
 pub trait NetlistSerializer {
+    /// Generates [`Verilog`](crate::verilog::Verilog) netlist source.
     fn gen(&self) -> String;
+    /// Generates [`NetlistSerializer`]s' netlist source [joined](slice::join) with `separator`.
     fn multi_gen<T: NetlistSerializer, U: IntoIterator<Item = T> + Clone>(
         iterable: &U,
-        joiner: &str,
+        separator: &str,
     ) -> String {
         iterable
             .clone()
             .into_iter()
             .map(|s| s.gen())
             .collect::<Vec<String>>()
-            .join(joiner)
+            .join(separator)
     }
 }
 
 impl NetlistSerializer for String {
+    /// Returns just [`String`] [clone](String::clone).
     fn gen(&self) -> String {
         self.clone()
     }

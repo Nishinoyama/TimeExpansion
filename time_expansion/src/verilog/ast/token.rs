@@ -1,5 +1,3 @@
-use std::str::Chars;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Reserved(String),
@@ -23,18 +21,18 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+    /// Generate `Lexer` from [`str`] . Parameter containing non-ascii characters cannot be guaranteed
+    /// because `Lexer` treats str as [`u8`] slice ( known as [`str::as_bytes`] ).
     pub fn from_str(input: &'a str) -> Self {
         Self {
             input: input.as_bytes(),
             index: 0,
         }
     }
-    pub fn from_chars(chars: Chars<'a>) -> Self {
-        Self::from_str(chars.as_str())
-    }
 }
 
 impl Lexer<'_> {
+    /// Generate [`Vec`] of [`Token`]s by tokenizing Verilog-netlist source.
     pub fn tokenize(mut self) -> Vec<Token> {
         let mut tokens = vec![];
         while let Some(c) = self.current() {
