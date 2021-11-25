@@ -43,6 +43,9 @@ impl Verilog {
     pub fn get_module(&self, name: &String) -> Option<&Module> {
         self.modules.iter().find(|m| m.name.eq(name))
     }
+    pub fn get_module_mut(&mut self, name: &String) -> Option<&mut Module> {
+        self.modules.iter_mut().find(|m| m.name.eq(name))
+    }
     pub fn poll_module(&mut self, name: &String) -> Option<Module> {
         let md = self.modules.iter().position(|m| m.name.eq(name));
         if let Some(poll_module) = md {
@@ -109,11 +112,24 @@ impl Module {
     pub fn push_wire(&mut self, range: SignalRange, wire: String) {
         self.wires.insert(wire, range);
     }
+    pub fn assigns(&self) -> &Vec<String> {
+        &self.assigns
+    }
     pub fn push_assign(&mut self, assign: String) {
         self.assigns.push(assign);
     }
+    pub fn remove_assigns_by_assign(&mut self, assign: &String) -> Option<String> {
+        if let Some(i) = self.assigns.iter().position(|s| s.eq(assign)) {
+            Some(self.assigns.remove(i))
+        } else {
+            None
+        }
+    }
     pub fn push_gate(&mut self, ident: String, gate: Gate) {
         self.gates.insert(ident, gate);
+    }
+    pub fn gate_mut_by_name(&mut self, ident: &String) -> Option<&mut Gate> {
+        self.gates.get_mut(ident)
     }
     pub fn remove_gate(&mut self, ident: &String) -> Option<Gate> {
         self.gates.remove(ident)

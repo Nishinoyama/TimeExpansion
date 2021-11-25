@@ -1,6 +1,8 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
+use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, PortWire, SignalRange, Verilog};
 use regex::Regex;
+use std::fmt::format;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -276,7 +278,9 @@ impl ExpansionConfig {
                         .unwrap()
                         .get_wire_mut() = format!("{}_c2", output);
                     if self.use_primary_io || ppos.iter().any(|ppo| output.contains(ppo)) {
-                        expanded_module.push_output(range.clone(), format!("{}_c2", output));
+                        expanded_module.push_wire(range.clone(), format!("{}_c2", output));
+                        expanded_module.push_output(range.clone(), output.clone());
+                        expanded_module.push_assign(format!("{} = {}_c2", output, output));
                     } else {
                         gate_c2.remove_port_by_name(output);
                     }
@@ -295,6 +299,76 @@ impl ExpansionConfig {
             Some(SkewedLoad) => Verilog::default(),
             _ => Verilog::default(),
         }
+    }
+    ///
+    /// insert restricted value gates for generating atpg model
+    ///
+    pub fn atpg_model_time_expand(&self) -> Result<Verilog, String> {
+        let mut atpg_model = self.time_expand();
+        let c1_name = format!("{}_cmb_c1", self.top_module);
+        let c2_name = format!("{}_cmb_c2", self.top_module);
+        let te_module_name = format!("{}_bs", self.top_module);
+
+        let c2_outputs = atpg_model
+            .get_module(&c2_name)
+            .unwrap()
+            .get_outputs()
+            .clone();
+
+        // gen observable wire in c1 for restriction
+        let c1_module = atpg_model.get_module_mut(&c1_name).unwrap();
+        let observable_wire = c1_module.add_observation_point(&self.equivalent_check.1)?;
+
+        // take restriction wire from c1
+        let te_module = atpg_model.get_module_mut(&te_module_name).unwrap();
+        let restriction_wire = observable_wire;
+        te_module.push_wire(SignalRange::Single, restriction_wire.clone());
+        let mut c1_gate = te_module.gate_mut_by_name(&String::from("c1")).unwrap();
+        c1_gate.push_port(PortWire::Wire(
+            restriction_wire.clone(),
+            restriction_wire.clone(),
+        ));
+
+        let restricted_outputs = c2_outputs
+            .keys()
+            .into_iter()
+            .filter_map(|ppo| {
+                te_module
+                    .assigns()
+                    .iter()
+                    .find(|assign| assign.ends_with(&format!("{}_c2", ppo)))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        restricted_outputs
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, res_assign)| {
+                use crate::verilog::PortWire::Wire;
+                let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
+                let po = res_out.next().unwrap();
+                let ppo_c2 = res_out.next().unwrap();
+                let ppo_r = format!("{}_{}", ppo_c2, self.equivalent_check.1.replace("/", "_"));
+                let mut restriction_gate = Gate::default();
+                *restriction_gate.get_name_mut() = String::from(if self.equivalent_check.0 {
+                    "AN2"
+                } else {
+                    "OR2"
+                });
+                restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
+                restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
+                restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
+                te_module.push_gate(
+                    format!("R{}_{}", i + 1, self.equivalent_check.1.replace("/", "_")),
+                    restriction_gate,
+                );
+                te_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));
+                te_module.push_wire(SignalRange::Single, ppo_r);
+                te_module.remove_assigns_by_assign(&res_assign);
+            });
+
+        Ok(atpg_model)
     }
 }
 
@@ -517,5 +591,13 @@ mod test {
         let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
         let v = ec.time_expand();
         eprintln!("{}", v.gen());
+    }
+
+    #[test]
+    pub fn atpg_model_time_expand() -> Result<(), String> {
+        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
+        let v = ec.atpg_model_time_expand()?;
+        eprintln!("{}", v.gen());
+        Ok(())
     }
 }
