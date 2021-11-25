@@ -370,6 +370,36 @@ impl ExpansionConfig {
 
         Ok(atpg_model)
     }
+    /// Gen 2 modules for Equivalent-Check at transition fault.
+    pub fn equivalent_check(&self) -> Result<Verilog, String> {
+        let mut ec_verilog = self.atpg_model_time_expand()?;
+        let bs_top_name = format!("{}_bs", self.top_module);
+
+        // build bs_ref and bs_imp
+        // replace bs_imp's c2 gate with c2_imp
+        let mut bs_ref = ec_verilog.get_module_mut(&bs_top_name).unwrap();
+        *bs_ref.get_name_mut() = format!("{}_ref", bs_top_name);
+        let mut bs_imp = bs_ref.clone();
+        *bs_imp.get_name_mut() = format!("{}_imp", bs_top_name);
+        *bs_imp
+            .gate_mut_by_name(&String::from("c2"))
+            .unwrap()
+            .get_name_mut() = format!("{}_cmb_c2_imp", self.top_module);
+        ec_verilog.push_module(bs_imp);
+
+        // insert stuck-at-fault into c2
+        let mut c2_ref = ec_verilog
+            .get_module_mut(&format!("{}_cmb_c2", self.top_module))
+            .unwrap();
+        let mut c2_imp = c2_ref.insert_stuck_at_fault(
+            format!("{}_cmb_c2_imp", self.top_module),
+            &self.equivalent_check.1,
+            self.equivalent_check.0,
+        );
+        ec_verilog.push_module(c2_imp);
+
+        Ok(ec_verilog)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -597,6 +627,14 @@ mod test {
     pub fn atpg_model_time_expand() -> Result<(), String> {
         let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
         let v = ec.atpg_model_time_expand()?;
+        eprintln!("{}", v.gen());
+        Ok(())
+    }
+
+    #[test]
+    pub fn equivalent_check() -> Result<(), String> {
+        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
+        let v = ec.equivalent_check()?;
         eprintln!("{}", v.gen());
         Ok(())
     }
