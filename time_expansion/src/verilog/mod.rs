@@ -43,6 +43,14 @@ impl Verilog {
     pub fn get_module(&self, name: &String) -> Option<&Module> {
         self.modules.iter().find(|m| m.name.eq(name))
     }
+    pub fn poll_module(&mut self, name: &String) -> Option<Module> {
+        let md = self.modules.iter().position(|m| m.name.eq(name));
+        if let Some(poll_module) = md {
+            Some(self.modules.remove(poll_module))
+        } else {
+            None
+        }
+    }
 }
 
 impl NetlistSerializer for Verilog {
@@ -74,6 +82,11 @@ impl Module {
         let mut m = Module::default();
         *m.get_name_mut() = name;
         m
+    }
+    pub fn clone_with_name_prefix(&self, prefix: &str) -> Self {
+        let mut clone = self.clone();
+        clone.name = format!("{}{}", clone.name, prefix);
+        clone
     }
     pub fn get_name_mut(&mut self) -> &mut String {
         &mut self.name
@@ -117,15 +130,44 @@ impl Module {
     pub fn ports(&self) -> Vec<(&String, &SignalRange)> {
         self.inputs.iter().chain(&self.outputs).collect()
     }
+    pub fn add_observation_point(&mut self, signal: &String) -> Result<(), String> {
+        let signal = signal.split("/").collect::<Vec<_>>();
+        if signal.len() == 1 {
+            let primary_io = signal[0];
+            let observable_wire = format!("{}_tp", primary_io);
+            self.push_assign(format!("{} = {}", observable_wire, primary_io));
+            self.push_output(SignalRange::Single, observable_wire);
+            Ok(())
+        } else if signal.len() == 2 {
+            let gate_name = signal[0];
+            let port = signal[1];
+            if let Some(gate) = self.get_gates().get(gate_name) {
+                if let Some(port_wire) = gate.get_port_by_name(&port.to_string()) {
+                    let wire = port_wire.get_wire();
+                    let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
+                    self.push_assign(format!("{} = {}", observable_wire, wire));
+                    self.push_output(SignalRange::Single, observable_wire);
+                }
+                Ok(())
+            } else {
+                Err(format!(
+                    "Such a signal named {} doesn't exist.\nPerhaps, it is FF-related signal.",
+                    signal.join("/")
+                ))
+            }
+        } else {
+            Err(format!("Too depth to observe \"{}\".", signal.join("/")))
+        }
+    }
     pub fn insert_stuck_at_fault(
         &self,
         new_module_name: String,
         stuck_signal: &String,
-        sa_value: usize,
+        sa_value: bool,
     ) -> Self {
         let mut faulty_module = self.clone();
         faulty_module.name = new_module_name;
-        let sa_value = format!("1'b{}", sa_value);
+        let sa_value = format!("1'b{}", if sa_value { 1 } else { 0 });
         let stuck_signal = stuck_signal.split("/").collect::<Vec<_>>();
         if stuck_signal.len() == 1 {
             // top level port stuck fault
@@ -390,15 +432,27 @@ mod test {
         let module = verilog.modules.get(0).unwrap();
         eprintln!("{}", module.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), 0);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), false);
         eprintln!("{}", fmodule.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/Z"), 0);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/Z"), false);
         eprintln!("{}", fmodule.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("linea"), 0);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("linea"), false);
         eprintln!("{}", fmodule.gen());
-        let fmodule = module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("u"), 0);
+        let fmodule =
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("u"), false);
         eprintln!("{}", fmodule.gen());
+    }
+
+    #[test]
+    fn add_observation_point() {
+        let mut verilog = Verilog::from_file(String::from("b02_net.v")).ok().unwrap();
+        let mut module = verilog.poll_module(&String::from("b02")).unwrap();
+        eprintln!("{}", module.gen());
+        module.add_observation_point(&String::from("U24/A"));
+        eprintln!("{}", module.gen());
+        module.add_observation_point(&String::from("u"));
+        eprintln!("{}", module.gen());
     }
 }

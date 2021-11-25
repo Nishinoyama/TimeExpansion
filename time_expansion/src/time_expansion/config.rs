@@ -18,7 +18,7 @@ pub struct ExpansionConfig {
     clock_pins: Vec<String>,
 
     use_primary_io: bool,
-    equivalent_check: String,
+    equivalent_check: (bool, String),
     ff_definitions: Vec<FFDefinition>,
     inv_definition: InvDefinition,
 }
@@ -65,7 +65,18 @@ impl ExpansionConfig {
             } else if let Some(cap) = use_primary_io_regex.captures(line) {
                 self.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
             } else if let Some(cap) = equivalent_check_regex.captures(line) {
-                self.equivalent_check = cap.get(1).unwrap().as_str().to_string();
+                let ec_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
+                if let Some(ec_cap) = ec_regex.captures(cap.get(1).unwrap().as_str()) {
+                    self.equivalent_check = (
+                        ec_cap.get(1).unwrap().as_str().eq("stf"),
+                        ec_cap.get(3).unwrap().as_str().to_string(),
+                    )
+                } else {
+                    return Err(format!(
+                        "Error: Equivalent check fault syntax Error at line {}",
+                        i + 1
+                    ));
+                }
             } else if let Some(cap) = ff_definitions_regex.captures(line) {
                 let mut ff_define = FFDefinition::from_file_iter(&mut line_iter);
                 *ff_define.get_name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
@@ -91,7 +102,7 @@ impl ExpansionConfig {
         if self.clock_pins.is_empty() {
             eprintln!("Warning: clock-pins option is blank. (Asynchronous circuit?)");
         }
-        if self.expand_method.is_none() && self.equivalent_check.is_empty() {
+        if self.expand_method.is_none() && self.equivalent_check.1.is_empty() {
             Err("Error: expand-method option must be specified in the configuration file.")
         } else if self.input_file.is_empty() {
             Err("Error: input-file option must be specified in the configuration file.")
@@ -211,18 +222,22 @@ impl ExpansionConfig {
             Some(Broadside) => {
                 let verilog = Verilog::from_config(self);
                 let top_module = verilog.get_module(&self.top_module).unwrap();
-                let (mut clone_circuit, ppis, ppos) = self.extract_combinational_part(top_module);
-                *clone_circuit.get_name_mut() = format!("{}_cmb", self.top_module);
-                let mut gate_c1 = clone_circuit.to_gate();
-                let mut gate_c2 = clone_circuit.to_gate();
+                let (combinational_part, ppis, ppos) = self.extract_combinational_part(top_module);
+                let clone_circuit_c1 = combinational_part.clone_with_name_prefix("_cmb_c1");
+                let clone_circuit_c2 = combinational_part.clone_with_name_prefix("_cmb_c2");
+                let mut gate_c1 = clone_circuit_c1.to_gate();
+                let mut gate_c2 = clone_circuit_c2.to_gate();
                 let mut expanded_module = Module::new_with_name(format!("{}_bs", self.top_module));
 
-                for (input, range) in clone_circuit.get_inputs().iter() {
+                // connect bs_model inputs to c1 pi, ppis
+                for (input, range) in clone_circuit_c1.get_inputs().iter() {
                     *gate_c1.get_port_by_name_mut(&input).unwrap().get_wire_mut() =
                         format!("{}_c1", input);
                     expanded_module.push_input(range.clone(), format!("{}_c1", input));
                 }
-                for (output, range) in clone_circuit.get_outputs().iter() {
+
+                // set c1 ppos, remove pos,
+                for (output, range) in clone_circuit_c1.get_outputs().iter() {
                     *gate_c1
                         .get_port_by_name_mut(&output)
                         .unwrap()
@@ -234,11 +249,13 @@ impl ExpansionConfig {
                     }
                 }
 
+                // chain c1 ppi to c2 ppo
                 for (ppi, ppo) in ppis.iter().zip(ppos.iter()) {
                     expanded_module.push_assign(format!("{}_c2 = {}_c1", ppi, ppo));
                 }
 
-                for (input, range) in clone_circuit.get_inputs().iter() {
+                // chain c1 pi wires (bs_model inputs if use_primary_io) to c2 ppi
+                for (input, range) in clone_circuit_c1.get_inputs().iter() {
                     *gate_c2.get_port_by_name_mut(&input).unwrap().get_wire_mut() =
                         format!("{}_c2", input);
                     if !ppis.iter().any(|ppi| input.contains(ppi)) {
@@ -250,7 +267,10 @@ impl ExpansionConfig {
                         }
                     }
                 }
-                for (output, range) in clone_circuit.get_outputs().iter() {
+
+                // chain c2 ppos (and pos if use_primary_io) to bs_model outputs
+                // remove c2 pos if not use_primary_io
+                for (output, range) in clone_circuit_c1.get_outputs().iter() {
                     *gate_c2
                         .get_port_by_name_mut(&output)
                         .unwrap()
@@ -261,12 +281,14 @@ impl ExpansionConfig {
                         gate_c2.remove_port_by_name(output);
                     }
                 }
+
                 expanded_module.push_gate(String::from("c1"), gate_c1);
                 expanded_module.push_gate(String::from("c2"), gate_c2);
 
                 let mut verilog = Verilog::default();
                 verilog.push_module(expanded_module);
-                verilog.push_module(clone_circuit);
+                verilog.push_module(clone_circuit_c1);
+                verilog.push_module(clone_circuit_c2);
 
                 verilog
             }
@@ -433,7 +455,7 @@ mod test {
         assert_eq!(ec.output_file, "b01_bs_net.v");
         assert_eq!(ec.top_module, "b01");
         assert_eq!(ec.clock_pins, vec!["clock", "reset"]);
-        assert_eq!(ec.equivalent_check, "str   NO   FLAG_reg/Q");
+        assert_eq!(ec.equivalent_check, (false, String::from("FLAG_reg/Q")));
         assert!(!ec.use_primary_io);
         assert_eq!(
             ec.ff_definitions,
