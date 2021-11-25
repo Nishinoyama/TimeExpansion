@@ -130,25 +130,24 @@ impl Module {
     pub fn ports(&self) -> Vec<(&String, &SignalRange)> {
         self.inputs.iter().chain(&self.outputs).collect()
     }
-    pub fn add_observation_point(&mut self, signal: &String) -> Result<(), String> {
+    pub fn add_observation_point(&mut self, signal: &String) -> Result<String, String> {
         let signal = signal.split("/").collect::<Vec<_>>();
         if signal.len() == 1 {
             let primary_io = signal[0];
             let observable_wire = format!("{}_tp", primary_io);
             self.push_assign(format!("{} = {}", observable_wire, primary_io));
-            self.push_output(SignalRange::Single, observable_wire);
-            Ok(())
+            self.push_output(SignalRange::Single, observable_wire.clone());
+            Ok(observable_wire)
         } else if signal.len() == 2 {
             let gate_name = signal[0];
             let port = signal[1];
             if let Some(gate) = self.get_gates().get(gate_name) {
-                if let Some(port_wire) = gate.get_port_by_name(&port.to_string()) {
-                    let wire = port_wire.get_wire();
-                    let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
-                    self.push_assign(format!("{} = {}", observable_wire, wire));
-                    self.push_output(SignalRange::Single, observable_wire);
-                }
-                Ok(())
+                let port_wire = gate.get_port_by_name(&port.to_string()).unwrap();
+                let wire = port_wire.get_wire();
+                let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
+                self.push_assign(format!("{} = {}", observable_wire, wire));
+                self.push_output(SignalRange::Single, observable_wire.clone());
+                Ok(observable_wire)
             } else {
                 Err(format!(
                     "Such a signal named {} doesn't exist.\nPerhaps, it is FF-related signal.",
