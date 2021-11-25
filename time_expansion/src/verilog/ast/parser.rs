@@ -96,7 +96,7 @@ impl Parser {
     }
     /// Generates [`Verilog`] netlist.
     ///
-    /// ```regex
+    /// ```ebnf
     /// verilog := module*
     /// ```
     pub fn verilog(mut self) -> Result<Verilog, String> {
@@ -106,7 +106,7 @@ impl Parser {
         }
         Ok(verilog)
     }
-    /// ```regex
+    /// ```ebnf
     /// module := "module" identifier "(" declarations ")" ";" statements* "endmodule"
     /// ```
     fn module(&mut self) -> Result<Option<Module>, String> {
@@ -124,7 +124,7 @@ impl Parser {
             Ok(None)
         }
     }
-    /// ```regex
+    /// ```ebnf
     /// statement := ( (input|output|wire) range? declarations |
     ///                assign expressions |
     ///                identifier identifier "(" gate_ports ")" ) ";"
@@ -165,7 +165,7 @@ impl Parser {
         self.expect_reserved_token(";")?;
         Ok(Some(()))
     }
-    /// ```regex
+    /// ```ebnf
     /// declarations := identifier ( "," identifier )*
     /// ```
     fn declarations(
@@ -187,7 +187,7 @@ impl Parser {
         }
         Ok((signal_range, declarations))
     }
-    /// ```regex
+    /// ```ebnf
     /// expressions := expression ( "," expression )*
     /// ```
     fn expressions(&mut self) -> Result<Vec<String>, String> {
@@ -200,7 +200,7 @@ impl Parser {
         }
         Ok(expressions)
     }
-    /// ```regex
+    /// ```ebnf
     /// expression := identifier_range "=" ( [^","";"] )
     /// ```
     fn expression(&mut self) -> Result<Option<String>, String> {
@@ -217,7 +217,7 @@ impl Parser {
         }
         Ok(Some(expression.join(" ")))
     }
-    /// ```regex
+    /// ```ebnf
     /// range := "[" number ":" number "]"
     /// ```
     fn range(&mut self) -> Result<Option<(String, String)>, String> {
@@ -231,7 +231,7 @@ impl Parser {
             None
         })
     }
-    /// ```regex
+    /// ```ebnf
     /// identifier_range := identifier ( "[" number "]" )?
     /// ```
     fn identifier_range(&mut self) -> Result<String, String> {
@@ -247,7 +247,7 @@ impl Parser {
             .collect::<Vec<_>>()
             .join(""))
     }
-    /// ```regex
+    /// ```ebnf
     /// gate_ports := ( "." identifier "(" identifier_range | number ")" )*
     /// ```
     fn gate_ports(&mut self, mut gate: Gate) -> Result<Gate, String> {
