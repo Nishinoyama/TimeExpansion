@@ -2,7 +2,7 @@ mod ast;
 pub mod netlist_serializer;
 
 use crate::time_expansion::config::ExpansionConfig;
-use crate::verilog::ast::parser::Parser;
+use crate::verilog::ast::parser::{ParseError, Parser};
 use crate::verilog::ast::token::Lexer;
 use crate::verilog::netlist_serializer::NetlistSerializer;
 use std::cmp::Ordering;
@@ -17,13 +17,13 @@ pub struct Verilog {
 }
 
 impl Verilog {
-    pub fn from_net_list(net_list: String) -> Verilog {
+    pub fn from_net_list(net_list: String) -> Result<Verilog, VerilogError> {
         let lexer = Lexer::from_str(net_list.as_str());
         let tokens = lexer.tokenize();
         let parser = Parser::from_tokens(tokens);
-        parser.verilog().unwrap()
+        Ok(parser.verilog()?)
     }
-    pub fn from_file(file_name: String) -> std::io::Result<Verilog> {
+    pub fn from_file(file_name: String) -> Result<Verilog, VerilogError> {
         let verilog_file = File::open(file_name)?;
         let verilog_buf_reader = BufReader::new(verilog_file);
         let mut net_list = String::new();
@@ -32,7 +32,7 @@ impl Verilog {
             net_list += &line;
             net_list += &String::from("\n");
         }
-        Ok(Self::from_net_list(net_list))
+        Ok(Self::from_net_list(net_list)?)
     }
     pub fn from_config(config: &ExpansionConfig) -> Self {
         Self::from_file(config.get_input_file().clone()).unwrap()
@@ -428,6 +428,24 @@ impl PortWire {
 impl NetlistSerializer for PortWire {
     fn gen(&self) -> String {
         format!(".{}({})", self.get_port(), self.get_wire())
+    }
+}
+
+#[derive(Debug)]
+pub enum VerilogError {
+    ParserError(ParseError),
+    IOError(std::io::Error),
+}
+
+impl From<ParseError> for VerilogError {
+    fn from(error: ParseError) -> Self {
+        Self::ParserError(error)
+    }
+}
+
+impl From<std::io::Error> for VerilogError {
+    fn from(error: std::io::Error) -> Self {
+        Self::IOError(error)
     }
 }
 

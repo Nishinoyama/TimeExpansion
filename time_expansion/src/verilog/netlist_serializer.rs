@@ -25,13 +25,14 @@ impl NetlistSerializer for String {
 #[cfg(test)]
 mod test {
     use crate::verilog::netlist_serializer::NetlistSerializer;
-    use crate::verilog::Verilog;
+    use crate::verilog::{Verilog, VerilogError};
 
     #[test]
-    fn expansion_config() {
-        let verilog = Verilog::from_file("b15_net.v".to_string()).unwrap();
+    fn expansion_config() -> Result<(), VerilogError> {
+        let verilog = Verilog::from_file("b15_net.v".to_string())?;
         let regen_net_list = verilog.gen();
-        let regen_verilog = Verilog::from_net_list(regen_net_list);
+        let regen_verilog = Verilog::from_net_list(regen_net_list)?;
         assert_eq!(verilog, regen_verilog);
+        Ok(())
     }
 }

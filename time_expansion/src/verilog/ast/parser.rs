@@ -16,7 +16,7 @@ impl Parser {
             index: 0,
         }
     }
-    fn consume_token_if_eq(&mut self, expected_token: Token) -> Result<Option<Token>, String> {
+    fn consume_token_if_eq(&mut self, expected_token: Token) -> Result<Option<Token>, ParseError> {
         Ok(if let Some(token) = self.current() {
             if expected_token.eq(token) {
                 self.next()
@@ -27,7 +27,7 @@ impl Parser {
             None
         })
     }
-    fn consume_identifier_token(&mut self) -> Result<Option<Token>, String> {
+    fn consume_identifier_token(&mut self) -> Result<Option<Token>, ParseError> {
         Ok(if let Some(token) = self.current() {
             if let Token::Identifier(_) = token {
                 self.next()
@@ -38,11 +38,11 @@ impl Parser {
             None
         })
     }
-    fn consume_reserved_token(&mut self, name: &str) -> Result<Option<Token>, String> {
+    fn consume_reserved_token(&mut self, name: &str) -> Result<Option<Token>, ParseError> {
         let expected_token = Token::Reserved(name.to_string());
         self.consume_token_if_eq(expected_token)
     }
-    fn consume_number_token(&mut self) -> Result<Option<Token>, String> {
+    fn consume_number_token(&mut self) -> Result<Option<Token>, ParseError> {
         Ok(if let Some(token) = self.current() {
             if let Token::Number(_) = token {
                 self.next()
@@ -53,45 +53,45 @@ impl Parser {
             None
         })
     }
-    fn expect_token(&mut self) -> Result<Token, String> {
+    fn expect_token(&mut self) -> Result<Token, ParseError> {
         if let Some(token) = self.next() {
             Ok(token)
         } else {
-            Err(format!("Error: No Token"))
+            Err(ParseError::from(ParseErrorType::NoToken))
         }
     }
-    fn expect_reserved_token(&mut self, name: &str) -> Result<Token, String> {
+    fn expect_reserved_token(&mut self, name: &str) -> Result<Token, ParseError> {
         let expected_token = Token::Reserved(name.to_string());
         let token = self.expect_token()?;
         if token == expected_token {
             Ok(token)
         } else {
-            Err(format!(
-                "Error: expected token {:?}, but got Token {:?}",
-                expected_token, token
-            ))
+            Err(ParseError::from(ParseErrorType::UnexpectedToken(
+                expected_token,
+                token,
+            )))
         }
     }
-    fn expect_number(&mut self) -> Result<Token, String> {
+    fn expect_number(&mut self) -> Result<Token, ParseError> {
         let token = self.expect_token()?;
         if matches!(token, Token::Number(_)) {
             Ok(token)
         } else {
-            Err(format!(
-                "Error: expected Number token, but got Token {:?}",
-                token
-            ))
+            Err(ParseError::from(ParseErrorType::UnexpectedToken(
+                Token::Number(String::from("{number}")),
+                token,
+            )))
         }
     }
-    fn expect_identifier(&mut self) -> Result<Token, String> {
+    fn expect_identifier(&mut self) -> Result<Token, ParseError> {
         let token = self.expect_token()?;
         if matches!(token, Token::Identifier(_)) {
             Ok(token)
         } else {
-            Err(format!(
-                "Error: expected Identifier token, but got Token {:?}",
-                token
-            ))
+            Err(ParseError::from(ParseErrorType::UnexpectedToken(
+                Token::Identifier(String::from("{identifier}")),
+                token,
+            )))
         }
     }
     /// Generates [`Verilog`] netlist.
@@ -99,7 +99,7 @@ impl Parser {
     /// ```ebnf
     /// verilog := module*
     /// ```
-    pub fn verilog(mut self) -> Result<Verilog, String> {
+    pub fn verilog(mut self) -> Result<Verilog, ParseError> {
         let mut verilog = Verilog::default();
         while let Some(module) = self.module()? {
             verilog.push_module(module);
@@ -109,7 +109,7 @@ impl Parser {
     /// ```ebnf
     /// module := "module" identifier "(" declarations ")" ";" statements* "endmodule"
     /// ```
-    fn module(&mut self) -> Result<Option<Module>, String> {
+    fn module(&mut self) -> Result<Option<Module>, ParseError> {
         if let Some(_) = self.consume_reserved_token("module")? {
             let mut module = Module::default();
             *module.get_name_mut() = self.expect_identifier()?.to_string();
@@ -129,7 +129,7 @@ impl Parser {
     ///                assign expressions |
     ///                identifier identifier "(" gate_ports ")" ) ";"
     /// ```
-    fn statement(&mut self, module: &mut Module) -> Result<Option<()>, String> {
+    fn statement(&mut self, module: &mut Module) -> Result<Option<()>, ParseError> {
         if let Some(_) = self.consume_reserved_token("input")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
@@ -171,7 +171,7 @@ impl Parser {
     fn declarations(
         &mut self,
         range: Option<(String, String)>,
-    ) -> Result<(SignalRange, Vec<String>), String> {
+    ) -> Result<(SignalRange, Vec<String>), ParseError> {
         use SignalRange::*;
         let signal_range = if let Some(sr) = range {
             Multiple(sr.clone())
@@ -190,7 +190,7 @@ impl Parser {
     /// ```ebnf
     /// expressions := expression ( "," expression )*
     /// ```
-    fn expressions(&mut self) -> Result<Vec<String>, String> {
+    fn expressions(&mut self) -> Result<Vec<String>, ParseError> {
         let mut expressions = vec![];
         while let Some(expr) = self.expression()? {
             expressions.push(expr);
@@ -203,7 +203,7 @@ impl Parser {
     /// ```ebnf
     /// expression := identifier_range "=" ( [^","";"] )
     /// ```
-    fn expression(&mut self) -> Result<Option<String>, String> {
+    fn expression(&mut self) -> Result<Option<String>, ParseError> {
         let lhd = self.identifier_range()?;
         let mut expression = vec![lhd];
         expression.push(self.expect_reserved_token("=")?.to_string());
@@ -220,7 +220,7 @@ impl Parser {
     /// ```ebnf
     /// range := "[" number ":" number "]"
     /// ```
-    fn range(&mut self) -> Result<Option<(String, String)>, String> {
+    fn range(&mut self) -> Result<Option<(String, String)>, ParseError> {
         Ok(if self.consume_reserved_token("[")?.is_some() {
             let r = self.expect_number()?.to_string();
             self.expect_reserved_token(":")?;
@@ -234,7 +234,7 @@ impl Parser {
     /// ```ebnf
     /// identifier_range := identifier ( "[" number "]" )?
     /// ```
-    fn identifier_range(&mut self) -> Result<String, String> {
+    fn identifier_range(&mut self) -> Result<String, ParseError> {
         let mut identifier_range = vec![self.expect_identifier()?];
         if let Some(lp) = self.consume_reserved_token("[")? {
             identifier_range.push(lp);
@@ -250,7 +250,7 @@ impl Parser {
     /// ```ebnf
     /// gate_ports := ( "." identifier "(" identifier_range | number ")" )*
     /// ```
-    fn gate_ports(&mut self, mut gate: Gate) -> Result<Gate, String> {
+    fn gate_ports(&mut self, mut gate: Gate) -> Result<Gate, ParseError> {
         while let Some(_) = self.consume_reserved_token(".")? {
             let port = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
@@ -273,6 +273,24 @@ impl Parser {
     fn next(&mut self) -> Option<Token> {
         self.tokens.pop()
     }
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    error_type: ParseErrorType,
+}
+
+impl From<ParseErrorType> for ParseError {
+    fn from(error_type: ParseErrorType) -> Self {
+        Self { error_type }
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseErrorType {
+    NoToken,
+    /// .1 [`Token`] is expected, but .2 [`Token`] gained.
+    UnexpectedToken(Token, Token),
 }
 
 #[cfg(test)]
