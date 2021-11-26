@@ -1,8 +1,6 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
-use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, PortWire, SignalRange, Verilog};
 use regex::Regex;
-use std::fmt::format;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -323,7 +321,7 @@ impl ExpansionConfig {
         let te_module = atpg_model.get_module_mut(&te_module_name).unwrap();
         let restriction_wire = observable_wire;
         te_module.push_wire(SignalRange::Single, restriction_wire.clone());
-        let mut c1_gate = te_module.gate_mut_by_name(&String::from("c1")).unwrap();
+        let c1_gate = te_module.gate_mut_by_name(&String::from("c1")).unwrap();
         c1_gate.push_port(PortWire::Wire(
             restriction_wire.clone(),
             restriction_wire.clone(),
@@ -377,7 +375,7 @@ impl ExpansionConfig {
 
         // build bs_ref and bs_imp
         // replace bs_imp's c2 gate with c2_imp
-        let mut bs_ref = ec_verilog.get_module_mut(&bs_top_name).unwrap();
+        let bs_ref = ec_verilog.get_module_mut(&bs_top_name).unwrap();
         *bs_ref.get_name_mut() = format!("{}_ref", bs_top_name);
         let mut bs_imp = bs_ref.clone();
         *bs_imp.get_name_mut() = format!("{}_imp", bs_top_name);
@@ -388,10 +386,10 @@ impl ExpansionConfig {
         ec_verilog.push_module(bs_imp);
 
         // insert stuck-at-fault into c2
-        let mut c2_ref = ec_verilog
+        let c2_ref = ec_verilog
             .get_module_mut(&format!("{}_cmb_c2", self.top_module))
             .unwrap();
-        let mut c2_imp = c2_ref.insert_stuck_at_fault(
+        let c2_imp = c2_ref.insert_stuck_at_fault(
             format!("{}_cmb_c2_imp", self.top_module),
             &self.equivalent_check.1,
             self.equivalent_check.0,
@@ -553,7 +551,7 @@ mod test {
 
     #[test]
     fn expansion_config() {
-        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
+        let ec = ExpansionConfig::from_file("expansion.conf").unwrap();
         assert_eq!(ec.expand_method, Some(Broadside));
         assert_eq!(ec.input_file, "b01_net.v");
         assert_eq!(ec.output_file, "b01_bs_net.v");

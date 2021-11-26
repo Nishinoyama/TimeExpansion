@@ -157,7 +157,7 @@ impl Module {
         } else if signal.len() == 2 {
             let gate_name = signal[0];
             let port = signal[1];
-            if let Some(gate) = self.get_gates().get(gate_name) {
+            if let Some(gate) = self.get_gates().get(gate_name).cloned() {
                 let port_wire = gate.get_port_by_name(&port.to_string()).unwrap();
                 let wire = port_wire.get_wire();
                 let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
@@ -432,6 +432,7 @@ impl NetlistSerializer for PortWire {
 }
 
 #[cfg(test)]
+#[allow(unused_variables)]
 mod test {
     use crate::verilog::netlist_serializer::NetlistSerializer;
     use crate::verilog::Verilog;
@@ -461,13 +462,14 @@ mod test {
     }
 
     #[test]
-    fn add_observation_point() {
+    fn add_observation_point() -> Result<(), String> {
         let mut verilog = Verilog::from_file(String::from("b02_net.v")).ok().unwrap();
         let mut module = verilog.poll_module(&String::from("b02")).unwrap();
         eprintln!("{}", module.gen());
-        module.add_observation_point(&String::from("U24/A"));
+        module.add_observation_point(&String::from("U24/A"))?;
         eprintln!("{}", module.gen());
-        module.add_observation_point(&String::from("u"));
+        module.add_observation_point(&String::from("u"))?;
         eprintln!("{}", module.gen());
+        Ok(())
     }
 }
