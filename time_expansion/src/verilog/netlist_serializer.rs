@@ -29,7 +29,7 @@ mod test {
 
     #[test]
     fn expansion_config() -> Result<(), VerilogError> {
-        let verilog = Verilog::from_file("b15_net.v".to_string())?;
+        let verilog = Verilog::from_file("b02_net.v".to_string())?;
         let regen_net_list = verilog.gen();
         let regen_verilog = Verilog::from_net_list(regen_net_list)?;
         assert_eq!(verilog, regen_verilog);

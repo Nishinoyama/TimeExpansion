@@ -112,7 +112,7 @@ impl Parser {
     fn module(&mut self) -> Result<Option<Module>, ParseError> {
         if let Some(_) = self.consume_reserved_token("module")? {
             let mut module = Module::default();
-            *module.get_name_mut() = self.expect_identifier()?.to_string();
+            *module.name_mut() = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             self.declarations(None)?;
             self.expect_reserved_token(")")?;
@@ -133,9 +133,9 @@ impl Parser {
         if let Some(_) = self.consume_reserved_token("input")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
-            signals
-                .into_iter()
-                .for_each(|s| module.push_input(range.clone(), s));
+            signals.into_iter().for_each(|s| {
+                module.push_input(range.clone(), s);
+            });
         } else if let Some(_) = self.consume_reserved_token("output")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
@@ -145,16 +145,16 @@ impl Parser {
         } else if let Some(_) = self.consume_reserved_token("wire")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
-            signals
-                .into_iter()
-                .for_each(|s| module.push_wire(range.clone(), s));
+            signals.into_iter().for_each(|s| {
+                module.push_wire(range.clone(), s);
+            });
         } else if let Some(_) = self.consume_reserved_token("assign")? {
             self.expressions()?
                 .into_iter()
                 .for_each(|s| module.push_assign(s));
         } else if let Some(gate_name) = self.consume_identifier_token()? {
             let mut gate = Gate::default();
-            *gate.get_name_mut() = gate_name.to_string();
+            *gate.name_mut() = gate_name.to_string();
             let ident = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             module.push_gate(ident, self.gate_ports(gate)?);

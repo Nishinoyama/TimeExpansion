@@ -35,18 +35,18 @@ impl Verilog {
         Ok(Self::from_net_list(net_list)?)
     }
     pub fn from_config(config: &ExpansionConfig) -> Self {
-        Self::from_file(config.get_input_file().clone()).unwrap()
+        Self::from_file(config.input_file().clone()).unwrap()
     }
     pub fn push_module(&mut self, module: Module) {
         self.modules.push(module);
     }
-    pub fn get_module(&self, name: &String) -> Option<&Module> {
+    pub fn module_by_name(&self, name: &String) -> Option<&Module> {
         self.modules.iter().find(|m| m.name.eq(name))
     }
-    pub fn get_module_mut(&mut self, name: &String) -> Option<&mut Module> {
+    pub fn module_by_name_mut(&mut self, name: &String) -> Option<&mut Module> {
         self.modules.iter_mut().find(|m| m.name.eq(name))
     }
-    pub fn poll_module(&mut self, name: &String) -> Option<Module> {
+    pub fn take_module_buy_name(&mut self, name: &String) -> Option<Module> {
         let md = self.modules.iter().position(|m| m.name.eq(name));
         if let Some(poll_module) = md {
             Some(self.modules.remove(poll_module))
@@ -83,7 +83,7 @@ pub struct Module {
 impl Module {
     pub fn new_with_name(name: String) -> Self {
         let mut m = Module::default();
-        *m.get_name_mut() = name;
+        *m.name_mut() = name;
         m
     }
     pub fn clone_with_name_prefix(&self, prefix: &str) -> Self {
@@ -91,26 +91,26 @@ impl Module {
         clone.name = format!("{}{}", clone.name, prefix);
         clone
     }
-    pub fn get_name_mut(&mut self) -> &mut String {
+    pub fn name_mut(&mut self) -> &mut String {
         &mut self.name
     }
-    pub fn get_name(&self) -> &String {
+    pub fn name(&self) -> &String {
         &self.name
     }
-    pub fn push_input(&mut self, range: SignalRange, input: String) {
-        self.inputs.insert(input, range);
+    pub fn push_input(&mut self, range: SignalRange, input: String) -> Option<SignalRange> {
+        self.inputs.insert(input, range)
     }
-    pub fn remove_input(&mut self, input: &String) {
-        self.inputs.remove(input);
+    pub fn remove_input(&mut self, input: &String) -> Option<SignalRange> {
+        self.inputs.remove(input)
     }
     pub fn push_output(&mut self, range: SignalRange, output: String) {
         self.outputs.insert(output, range);
     }
-    pub fn remove_output(&mut self, output: &String) {
-        self.outputs.remove(output);
+    pub fn remove_output(&mut self, output: &String) -> Option<SignalRange> {
+        self.outputs.remove(output)
     }
-    pub fn push_wire(&mut self, range: SignalRange, wire: String) {
-        self.wires.insert(wire, range);
+    pub fn push_wire(&mut self, range: SignalRange, wire: String) -> Option<SignalRange> {
+        self.wires.insert(wire, range)
     }
     pub fn assigns(&self) -> &Vec<String> {
         &self.assigns
@@ -134,19 +134,19 @@ impl Module {
     pub fn remove_gate(&mut self, ident: &String) -> Option<Gate> {
         self.gates.remove(ident)
     }
-    pub fn get_inputs(&self) -> &BTreeMap<String, SignalRange> {
+    pub fn inputs(&self) -> &BTreeMap<String, SignalRange> {
         &self.inputs
     }
-    pub fn get_outputs(&self) -> &BTreeMap<String, SignalRange> {
+    pub fn outputs(&self) -> &BTreeMap<String, SignalRange> {
         &self.outputs
     }
-    pub fn get_gates(&self) -> &BTreeMap<String, Gate> {
+    pub fn gates(&self) -> &BTreeMap<String, Gate> {
         &self.gates
     }
     pub fn ports(&self) -> Vec<(&String, &SignalRange)> {
         self.inputs.iter().chain(&self.outputs).collect()
     }
-    pub fn add_observation_point(&mut self, signal: &String) -> Result<String, String> {
+    pub fn add_observation_point(&mut self, signal: &String) -> Result<String, ModuleError> {
         let signal = signal.split("/").collect::<Vec<_>>();
         if signal.len() == 1 {
             let primary_io = signal[0];
@@ -157,21 +157,24 @@ impl Module {
         } else if signal.len() == 2 {
             let gate_name = signal[0];
             let port = signal[1];
-            if let Some(gate) = self.get_gates().get(gate_name).cloned() {
-                let port_wire = gate.get_port_by_name(&port.to_string()).unwrap();
-                let wire = port_wire.get_wire();
+            if let Some(gate) = self.gates().get(gate_name).cloned() {
+                let port_wire = gate.port_by_name(&port.to_string()).unwrap();
+                let wire = port_wire.wire();
                 let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
                 self.push_assign(format!("{} = {}", observable_wire, wire));
                 self.push_output(SignalRange::Single, observable_wire.clone());
                 Ok(observable_wire)
             } else {
-                Err(format!(
+                Err(ModuleError::UnknownSignal(format!(
                     "Such a signal named {} doesn't exist.\nPerhaps, it is FF-related signal.",
                     signal.join("/")
-                ))
+                )))
             }
         } else {
-            Err(format!("Too depth to observe \"{}\".", signal.join("/")))
+            Err(ModuleError::StuckAtFaultInsertionDepthIsExceeded(format!(
+                "Too depth to observe \"{}\".",
+                signal.join("/")
+            )))
         }
     }
     pub fn insert_stuck_at_fault(
@@ -179,7 +182,7 @@ impl Module {
         new_module_name: String,
         stuck_signal: &String,
         sa_value: bool,
-    ) -> Self {
+    ) -> Result<Self, ModuleError> {
         let mut faulty_module = self.clone();
         faulty_module.name = new_module_name;
         let sa_value = format!("1'b{}", if sa_value { 1 } else { 0 });
@@ -188,18 +191,18 @@ impl Module {
             // top level port stuck fault
             let stuck_wire = stuck_signal[0].to_string();
             let stuck_gates = faulty_module
-                .get_gates()
+                .gates()
                 .clone()
                 .into_iter()
                 .filter(|(_, gate)| {
-                    gate.get_ports()
+                    gate.ports()
                         .iter()
-                        .any(|port_wire| stuck_wire.eq(port_wire.get_wire()))
+                        .any(|port_wire| stuck_wire.eq(port_wire.wire()))
                 });
             for (ident, mut gate) in stuck_gates {
-                for port_wire in gate.get_ports_mut() {
-                    let port = port_wire.get_port().clone();
-                    let wire = port_wire.get_wire_mut();
+                for port_wire in gate.ports_mut() {
+                    let port = port_wire.port().clone();
+                    let wire = port_wire.wire_mut();
                     if stuck_wire.eq(wire) {
                         // TODO: Remove "Z" or "Y" Magic which means output port!
                         if port.contains("Z") || port.contains("Y") || port.contains("Q") {
@@ -220,8 +223,8 @@ impl Module {
             let stuck_gate_ident = stuck_signal[0].to_string();
             let stuck_port_name = stuck_signal[1].to_string();
             let mut stuck_gate = faulty_module.gates.get(&stuck_gate_ident).unwrap().clone();
-            let port_wire = stuck_gate.get_port_by_name_mut(&stuck_port_name).unwrap();
-            let wire = port_wire.get_wire_mut();
+            let port_wire = stuck_gate.port_by_name_mut(&stuck_port_name).unwrap();
+            let wire = port_wire.wire_mut();
             // TODO: Remove "Z" or "Y" Magic which means output port!
             if stuck_port_name.contains("Z")
                 || stuck_port_name.contains("Y")
@@ -238,16 +241,16 @@ impl Module {
             faulty_module.push_gate(stuck_gate_ident, stuck_gate)
         } else {
             // too deep level not to insert stuck fault
-            panic!(
+            return Err(ModuleError::StuckAtFaultInsertionDepthIsExceeded(format!(
                 "Specified fault \"{}\" is too deep to be inserted!",
                 stuck_signal.join("/")
-            )
+            )));
         }
-        faulty_module
+        Ok(faulty_module)
     }
     pub fn to_gate(&self) -> Gate {
         let mut gate = Gate::default();
-        *gate.get_name_mut() = self.get_name().clone();
+        *gate.name_mut() = self.name().clone();
         for (port, _) in self.ports() {
             gate.push_port(PortWire::Wire(port.clone(), port.clone()));
         }
@@ -266,6 +269,12 @@ impl Module {
         }
         signal_range_wires
     }
+}
+
+#[derive(Debug)]
+pub enum ModuleError {
+    UnknownSignal(String),
+    StuckAtFaultInsertionDepthIsExceeded(String),
 }
 
 impl NetlistSerializer for Module {
@@ -356,28 +365,28 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub fn get_name_mut(&mut self) -> &mut String {
+    pub fn name_mut(&mut self) -> &mut String {
         &mut self.name
     }
-    pub fn get_name(&self) -> &String {
+    pub fn name(&self) -> &String {
         &self.name
     }
     pub fn push_port(&mut self, port_wire: PortWire) {
         self.ports.push(port_wire);
     }
-    pub fn get_ports(&self) -> &Vec<PortWire> {
+    pub fn ports(&self) -> &Vec<PortWire> {
         &self.ports
     }
-    pub fn get_ports_mut(&mut self) -> &mut Vec<PortWire> {
+    pub fn ports_mut(&mut self) -> &mut Vec<PortWire> {
         &mut self.ports
     }
-    pub fn get_port_by_name(&self, port_name: &String) -> Option<&PortWire> {
+    pub fn port_by_name(&self, port_name: &String) -> Option<&PortWire> {
         self.ports.iter().find(|pw| pw.port_is(port_name))
     }
-    pub fn get_port_by_name_mut(&mut self, port_name: &String) -> Option<&mut PortWire> {
+    pub fn port_by_name_mut(&mut self, port_name: &String) -> Option<&mut PortWire> {
         self.ports.iter_mut().find(|pw| pw.port_is(port_name))
     }
-    pub fn remove_port_by_name(&mut self, port_name: &String) -> Option<PortWire> {
+    pub fn take_port_by_name(&mut self, port_name: &String) -> Option<PortWire> {
         if let Some(i) = self.ports.iter().position(|r| r.port_is(port_name)) {
             Some(self.ports.remove(i))
         } else {
@@ -399,19 +408,19 @@ pub enum PortWire {
 }
 
 impl PortWire {
-    pub fn get_wire(&self) -> &String {
+    pub fn wire(&self) -> &String {
         match self {
             Self::Wire(_, wire) => wire,
             Self::Constant(_, wire) => wire,
         }
     }
-    pub fn get_wire_mut(&mut self) -> &mut String {
+    pub fn wire_mut(&mut self) -> &mut String {
         match self {
             Self::Wire(_, wire) => wire,
             Self::Constant(_, wire) => wire,
         }
     }
-    pub fn get_port(&self) -> &String {
+    pub fn port(&self) -> &String {
         match self {
             Self::Wire(port, _) => port,
             Self::Constant(port, _) => port,
@@ -427,19 +436,26 @@ impl PortWire {
 
 impl NetlistSerializer for PortWire {
     fn gen(&self) -> String {
-        format!(".{}({})", self.get_port(), self.get_wire())
+        format!(".{}({})", self.port(), self.wire())
     }
 }
 
 #[derive(Debug)]
 pub enum VerilogError {
     ParserError(ParseError),
+    ModuleError(ModuleError),
     IOError(std::io::Error),
 }
 
 impl From<ParseError> for VerilogError {
     fn from(error: ParseError) -> Self {
         Self::ParserError(error)
+    }
+}
+
+impl From<ModuleError> for VerilogError {
+    fn from(error: ModuleError) -> Self {
+        Self::ModuleError(error)
     }
 }
 
@@ -453,36 +469,40 @@ impl From<std::io::Error> for VerilogError {
 #[allow(unused_variables)]
 mod test {
     use crate::verilog::netlist_serializer::NetlistSerializer;
-    use crate::verilog::Verilog;
+    use crate::verilog::{Verilog, VerilogError};
+
+    type VerilogTestResult = Result<(), VerilogError>;
 
     #[test]
-    fn expansion_config() {
-        let verilog = Verilog::from_file(String::from("b15_net.v")).ok().unwrap();
+    fn expansion_config() -> VerilogTestResult {
+        let verilog = Verilog::from_file(String::from("b02_net.v"))?;
+        Ok(())
     }
 
     #[test]
-    fn insert_fault() {
-        let verilog = Verilog::from_file(String::from("b02_net.v")).ok().unwrap();
+    fn insert_fault() -> VerilogTestResult {
+        let verilog = Verilog::from_file(String::from("b02_net.v"))?;
         let module = verilog.modules.get(0).unwrap();
         eprintln!("{}", module.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), false);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), false)?;
         eprintln!("{}", fmodule.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/Z"), false);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/Z"), false)?;
         eprintln!("{}", fmodule.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("linea"), false);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("linea"), false)?;
         eprintln!("{}", fmodule.gen());
         let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("u"), false);
+            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("u"), false)?;
         eprintln!("{}", fmodule.gen());
+        Ok(())
     }
 
     #[test]
-    fn add_observation_point() -> Result<(), String> {
-        let mut verilog = Verilog::from_file(String::from("b02_net.v")).ok().unwrap();
-        let mut module = verilog.poll_module(&String::from("b02")).unwrap();
+    fn add_observation_point() -> VerilogTestResult {
+        let mut verilog = Verilog::from_file(String::from("b02_net.v"))?;
+        let mut module = verilog.take_module_buy_name(&String::from("b02")).unwrap();
         eprintln!("{}", module.gen());
         module.add_observation_point(&String::from("U24/A"))?;
         eprintln!("{}", module.gen());
