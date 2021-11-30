@@ -165,13 +165,13 @@ impl Module {
                 self.push_output(SignalRange::Single, observable_wire.clone());
                 Ok(observable_wire)
             } else {
-                Err(ModuleError::UnknownSignal(format!(
+                Err(ModuleError::UndefinedSignal(format!(
                     "Such a signal named {} doesn't exist.\nPerhaps, it is FF-related signal.",
                     signal.join("/")
                 )))
             }
         } else {
-            Err(ModuleError::StuckAtFaultInsertionDepthIsExceeded(format!(
+            Err(ModuleError::ExceededStuckAtFaultInsertionDepth(format!(
                 "Too depth to observe \"{}\".",
                 signal.join("/")
             )))
@@ -241,7 +241,7 @@ impl Module {
             faulty_module.push_gate(stuck_gate_ident, stuck_gate)
         } else {
             // too deep level not to insert stuck fault
-            return Err(ModuleError::StuckAtFaultInsertionDepthIsExceeded(format!(
+            return Err(ModuleError::ExceededStuckAtFaultInsertionDepth(format!(
                 "Specified fault \"{}\" is too deep to be inserted!",
                 stuck_signal.join("/")
             )));
@@ -273,8 +273,8 @@ impl Module {
 
 #[derive(Debug)]
 pub enum ModuleError {
-    UnknownSignal(String),
-    StuckAtFaultInsertionDepthIsExceeded(String),
+    UndefinedSignal(String),
+    ExceededStuckAtFaultInsertionDepth(String),
 }
 
 impl NetlistSerializer for Module {
