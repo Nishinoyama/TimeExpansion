@@ -1,6 +1,5 @@
 use crate::verilog::ast::token::Token;
-use crate::verilog::PortWire::{Constant, Wire};
-use crate::verilog::{Gate, Module, SignalRange, Verilog};
+use crate::verilog::{Gate, Module, PortWire, SignalRange, Verilog, Wire};
 
 #[derive(Clone, Debug)]
 pub struct Parser {
@@ -134,19 +133,19 @@ impl Parser {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
             signals.into_iter().for_each(|s| {
-                module.push_input(range.clone(), s);
+                module.push_input(Wire::new(range.clone(), s));
             });
         } else if let Some(_) = self.consume_reserved_token("output")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
-            signals
-                .into_iter()
-                .for_each(|s| module.push_output(range.clone(), s));
+            signals.into_iter().for_each(|s| {
+                module.push_output(Wire::new(range.clone(), s));
+            });
         } else if let Some(_) = self.consume_reserved_token("wire")? {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
             signals.into_iter().for_each(|s| {
-                module.push_wire(range.clone(), s);
+                module.push_wire(Wire::new(range.clone(), s));
             });
         } else if let Some(_) = self.consume_reserved_token("assign")? {
             self.expressions()?
@@ -255,10 +254,10 @@ impl Parser {
             let port = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             if let Some(wire) = self.consume_number_token()? {
-                gate.push_port(Constant(port, wire.to_string()));
+                gate.push_port(PortWire::Constant(port, wire.to_string()));
             } else {
                 let wire = self.identifier_range()?.to_string();
-                gate.push_port(Wire(port, wire));
+                gate.push_port(PortWire::Wire(port, wire));
             }
             self.expect_reserved_token(")")?;
             if self.consume_reserved_token(",")?.is_none() {

@@ -1,12 +1,14 @@
 mod ast;
+pub mod fault;
 pub mod netlist_serializer;
 
 use crate::time_expansion::config::ExpansionConfig;
 use crate::verilog::ast::parser::{ParseError, Parser};
 use crate::verilog::ast::token::Lexer;
+use crate::verilog::fault::Fault;
 use crate::verilog::netlist_serializer::NetlistSerializer;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -73,9 +75,9 @@ impl NetlistSerializer for Verilog {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Module {
     name: String,
-    inputs: BTreeMap<String, SignalRange>,
-    outputs: BTreeMap<String, SignalRange>,
-    wires: BTreeMap<String, SignalRange>,
+    inputs: HashSet<Wire>,
+    outputs: HashSet<Wire>,
+    wires: HashSet<Wire>,
     assigns: Vec<String>,
     gates: BTreeMap<String, Gate>,
 }
@@ -97,20 +99,20 @@ impl Module {
     pub fn name(&self) -> &String {
         &self.name
     }
-    pub fn push_input(&mut self, range: SignalRange, input: String) -> Option<SignalRange> {
-        self.inputs.insert(input, range)
+    pub fn push_input(&mut self, input: Wire) -> bool {
+        self.inputs.insert(input)
     }
-    pub fn remove_input(&mut self, input: &String) -> Option<SignalRange> {
+    pub fn remove_input(&mut self, input: &Wire) -> bool {
         self.inputs.remove(input)
     }
-    pub fn push_output(&mut self, range: SignalRange, output: String) {
-        self.outputs.insert(output, range);
+    pub fn push_output(&mut self, output: Wire) -> bool {
+        self.outputs.insert(output)
     }
-    pub fn remove_output(&mut self, output: &String) -> Option<SignalRange> {
+    pub fn remove_output(&mut self, output: &Wire) -> bool {
         self.outputs.remove(output)
     }
-    pub fn push_wire(&mut self, range: SignalRange, wire: String) -> Option<SignalRange> {
-        self.wires.insert(wire, range)
+    pub fn push_wire(&mut self, wire: Wire) -> bool {
+        self.wires.insert(wire)
     }
     pub fn assigns(&self) -> &Vec<String> {
         &self.assigns
@@ -134,16 +136,16 @@ impl Module {
     pub fn remove_gate(&mut self, ident: &String) -> Option<Gate> {
         self.gates.remove(ident)
     }
-    pub fn inputs(&self) -> &BTreeMap<String, SignalRange> {
+    pub fn inputs(&self) -> &HashSet<Wire> {
         &self.inputs
     }
-    pub fn outputs(&self) -> &BTreeMap<String, SignalRange> {
+    pub fn outputs(&self) -> &HashSet<Wire> {
         &self.outputs
     }
     pub fn gates(&self) -> &BTreeMap<String, Gate> {
         &self.gates
     }
-    pub fn ports(&self) -> Vec<(&String, &SignalRange)> {
+    pub fn pins(&self) -> Vec<&Wire> {
         self.inputs.iter().chain(&self.outputs).collect()
     }
     pub fn add_observation_point(&mut self, signal: &String) -> Result<String, ModuleError> {
@@ -152,7 +154,7 @@ impl Module {
             let primary_io = signal[0];
             let observable_wire = format!("{}_tp", primary_io);
             self.push_assign(format!("{} = {}", observable_wire, primary_io));
-            self.push_output(SignalRange::Single, observable_wire.clone());
+            self.push_output(Wire::new_single(observable_wire.clone()));
             Ok(observable_wire)
         } else if signal.len() == 2 {
             let gate_name = signal[0];
@@ -162,7 +164,7 @@ impl Module {
                 let wire = port_wire.wire();
                 let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
                 self.push_assign(format!("{} = {}", observable_wire, wire));
-                self.push_output(SignalRange::Single, observable_wire.clone());
+                self.push_output(Wire::new_single(observable_wire.clone()));
                 Ok(observable_wire)
             } else {
                 Err(ModuleError::UndefinedSignal(format!(
@@ -180,13 +182,12 @@ impl Module {
     pub fn insert_stuck_at_fault(
         &self,
         new_module_name: String,
-        stuck_signal: &String,
-        sa_value: bool,
+        fault: &Fault,
     ) -> Result<Self, ModuleError> {
         let mut faulty_module = self.clone();
         faulty_module.name = new_module_name;
-        let sa_value = format!("1'b{}", if sa_value { 1 } else { 0 });
-        let stuck_signal = stuck_signal.split("/").collect::<Vec<_>>();
+        let sa_value = format!("1'b{}", if fault.sa_value() { 1 } else { 0 });
+        let stuck_signal = fault.location().split("/").collect::<Vec<_>>();
         if stuck_signal.len() == 1 {
             // top level port stuck fault
             let stuck_wire = stuck_signal[0].to_string();
@@ -201,13 +202,13 @@ impl Module {
                 });
             for (ident, mut gate) in stuck_gates {
                 for port_wire in gate.ports_mut() {
-                    let port = port_wire.port().clone();
+                    let port = port_wire.port().to_string();
                     let wire = port_wire.wire_mut();
                     if stuck_wire.eq(wire) {
                         // TODO: Remove "Z" or "Y" Magic which means output port!
                         if port.contains("Z") || port.contains("Y") || port.contains("Q") {
                             let opened_wire = format!("{}_drained", wire);
-                            faulty_module.push_wire(SignalRange::Single, opened_wire.clone());
+                            faulty_module.push_wire(Wire::new_single(opened_wire.clone()));
                             faulty_module.push_assign(format!("{} = {}", wire, sa_value));
                             *wire = opened_wire.clone();
                         } else {
@@ -231,7 +232,7 @@ impl Module {
                 || stuck_port_name.contains("Q")
             {
                 let opened_wire = format!("{}_drained", wire);
-                faulty_module.push_wire(SignalRange::Single, opened_wire.clone());
+                faulty_module.push_wire(Wire::new_single(opened_wire.clone()));
                 faulty_module.push_assign(format!("{} = {}", wire, sa_value));
                 *wire = opened_wire.clone();
             } else {
@@ -251,20 +252,23 @@ impl Module {
     pub fn to_gate(&self) -> Gate {
         let mut gate = Gate::default();
         *gate.name_mut() = self.name().clone();
-        for (port, _) in self.ports() {
-            gate.push_port(PortWire::Wire(port.clone(), port.clone()));
+        for pin in self.pins() {
+            gate.push_port(PortWire::Wire(
+                pin.name().to_string(),
+                pin.name().to_string(),
+            ))
         }
         gate
     }
-    fn wires_by_signal_range(
-        wires: &BTreeMap<String, SignalRange>,
-    ) -> HashMap<SignalRange, Vec<String>> {
+    fn wires_by_signal_range(wires: &HashSet<Wire>) -> HashMap<SignalRange, Vec<String>> {
         let mut signal_range_wires: HashMap<SignalRange, Vec<String>> = HashMap::new();
-        for (ident, range) in wires {
+        for wire in wires {
+            let ident = wire.name();
+            let range = wire.range();
             if let Some(w) = signal_range_wires.get_mut(range) {
-                w.push(ident.clone());
+                w.push(ident.to_string());
             } else {
-                signal_range_wires.insert(range.clone(), vec![ident.clone()]);
+                signal_range_wires.insert(range.clone(), vec![ident.to_string()]);
             }
         }
         signal_range_wires
@@ -283,9 +287,9 @@ impl NetlistSerializer for Module {
             "module {ident} ( {ports} );\n",
             ident = self.name,
             ports = self
-                .ports()
+                .pins()
                 .into_iter()
-                .map(|(ident, _)| ident.clone())
+                .map(|pin| pin.name.clone())
                 .collect::<Vec<_>>()
                 .join(", "),
         );
@@ -358,6 +362,33 @@ impl Ord for SignalRange {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Wire {
+    range: SignalRange,
+    name: String,
+}
+
+impl Wire {
+    pub fn new(range: SignalRange, name: String) -> Self {
+        Wire { range, name }
+    }
+    pub fn new_single(name: String) -> Self {
+        Self::new(SignalRange::Single, name)
+    }
+    pub fn new_multiple(name: String, left: String, right: String) -> Self {
+        Self::new(SignalRange::Multiple((left, right)), name)
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn range(&self) -> &SignalRange {
+        &self.range
+    }
+    pub fn name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Gate {
     name: String,
@@ -368,7 +399,7 @@ impl Gate {
     pub fn name_mut(&mut self) -> &mut String {
         &mut self.name
     }
-    pub fn name(&self) -> &String {
+    pub fn name(&self) -> &str {
         &self.name
     }
     pub fn push_port(&mut self, port_wire: PortWire) {
@@ -380,13 +411,13 @@ impl Gate {
     pub fn ports_mut(&mut self) -> &mut Vec<PortWire> {
         &mut self.ports
     }
-    pub fn port_by_name(&self, port_name: &String) -> Option<&PortWire> {
+    pub fn port_by_name(&self, port_name: &str) -> Option<&PortWire> {
         self.ports.iter().find(|pw| pw.port_is(port_name))
     }
-    pub fn port_by_name_mut(&mut self, port_name: &String) -> Option<&mut PortWire> {
+    pub fn port_by_name_mut(&mut self, port_name: &str) -> Option<&mut PortWire> {
         self.ports.iter_mut().find(|pw| pw.port_is(port_name))
     }
-    pub fn take_port_by_name(&mut self, port_name: &String) -> Option<PortWire> {
+    pub fn take_port_by_name(&mut self, port_name: &str) -> Option<PortWire> {
         if let Some(i) = self.ports.iter().position(|r| r.port_is(port_name)) {
             Some(self.ports.remove(i))
         } else {
@@ -408,7 +439,7 @@ pub enum PortWire {
 }
 
 impl PortWire {
-    pub fn wire(&self) -> &String {
+    pub fn wire(&self) -> &str {
         match self {
             Self::Wire(_, wire) => wire,
             Self::Constant(_, wire) => wire,
@@ -420,13 +451,13 @@ impl PortWire {
             Self::Constant(_, wire) => wire,
         }
     }
-    pub fn port(&self) -> &String {
+    pub fn port(&self) -> &str {
         match self {
             Self::Wire(port, _) => port,
             Self::Constant(port, _) => port,
         }
     }
-    pub fn port_is(&self, port_name: &String) -> bool {
+    pub fn port_is(&self, port_name: &str) -> bool {
         match self {
             Self::Wire(port, _) => port.eq(port_name),
             Self::Constant(port, _) => port.eq(port_name),
@@ -468,6 +499,7 @@ impl From<std::io::Error> for VerilogError {
 #[cfg(test)]
 #[allow(unused_variables)]
 mod test {
+    use crate::verilog::fault::Fault;
     use crate::verilog::netlist_serializer::NetlistSerializer;
     use crate::verilog::{Verilog, VerilogError};
 
@@ -484,17 +516,25 @@ mod test {
         let verilog = Verilog::from_file(String::from("b02_net.v"))?;
         let module = verilog.modules.get(0).unwrap();
         eprintln!("{}", module.gen());
-        let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/A"), false)?;
+        let fmodule = module.insert_stuck_at_fault(
+            String::from("b02_ft"),
+            &Fault::new(String::from("U19/A"), false),
+        )?;
         eprintln!("{}", fmodule.gen());
-        let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("U19/Z"), false)?;
+        let fmodule = module.insert_stuck_at_fault(
+            String::from("b02_ft"),
+            &Fault::new(String::from("U19/Z"), false),
+        )?;
         eprintln!("{}", fmodule.gen());
-        let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("linea"), false)?;
+        let fmodule = module.insert_stuck_at_fault(
+            String::from("b02_ft"),
+            &Fault::new(String::from("linea"), false),
+        )?;
         eprintln!("{}", fmodule.gen());
-        let fmodule =
-            module.insert_stuck_at_fault(String::from("b02_ft"), &String::from("u"), false)?;
+        let fmodule = module.insert_stuck_at_fault(
+            String::from("b02_ft"),
+            &Fault::new(String::from("u"), false),
+        )?;
         eprintln!("{}", fmodule.gen());
         Ok(())
     }

@@ -1,14 +1,7 @@
-use crate::time_expansion::config::ExpansionConfig;
+use crate::verilog::fault::Fault;
 use crate::verilog::Module;
 
 pub mod config;
-
-/// WIP! transition str/stf fault only!
-#[derive(Debug)]
-pub struct Fault {
-    location: String,
-    sa_value: bool,
-}
 
 #[derive(Debug)]
 pub struct ExtractedCombinationalPartModel {
@@ -18,6 +11,14 @@ pub struct ExtractedCombinationalPartModel {
     pseudo_primary_inputs: Vec<String>,
     pseudo_primary_outputs: Vec<String>,
 }
+
+pub trait TimeExpansionModel {
+    fn primary_inputs(&self) -> Vec<String>;
+    fn primary_outputs(&self) -> Vec<String>;
+    fn pseudo_primary_inputs(&self) -> Vec<String>;
+    fn pseudo_primary_outputs(&self) -> Vec<String>;
+}
+pub trait TimeExpansionATPGModel {}
 
 #[derive(Debug)]
 pub struct BroadSideExpansionModel {
