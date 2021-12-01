@@ -2,7 +2,6 @@ mod ast;
 pub mod fault;
 pub mod netlist_serializer;
 
-use crate::time_expansion::config::ExpansionConfig;
 use crate::verilog::ast::parser::{ParseError, Parser};
 use crate::verilog::ast::token::Lexer;
 use crate::verilog::fault::Fault;
@@ -19,13 +18,13 @@ pub struct Verilog {
 }
 
 impl Verilog {
-    pub fn from_net_list(net_list: String) -> Result<Verilog, VerilogError> {
-        let lexer = Lexer::from_str(net_list.as_str());
+    pub fn from_net_list(net_list: &str) -> Result<Verilog, VerilogError> {
+        let lexer = Lexer::from_str(net_list);
         let tokens = lexer.tokenize();
         let parser = Parser::from_tokens(tokens);
         Ok(parser.verilog()?)
     }
-    pub fn from_file(file_name: String) -> Result<Verilog, VerilogError> {
+    pub fn from_file(file_name: &str) -> Result<Verilog, VerilogError> {
         let verilog_file = File::open(file_name)?;
         let verilog_buf_reader = BufReader::new(verilog_file);
         let mut net_list = String::new();
@@ -34,21 +33,18 @@ impl Verilog {
             net_list += &line;
             net_list += &String::from("\n");
         }
-        Ok(Self::from_net_list(net_list)?)
-    }
-    pub fn from_config(config: &ExpansionConfig) -> Self {
-        Self::from_file(config.input_file().clone()).unwrap()
+        Ok(Self::from_net_list(net_list.as_str())?)
     }
     pub fn push_module(&mut self, module: Module) {
         self.modules.push(module);
     }
-    pub fn module_by_name(&self, name: &String) -> Option<&Module> {
+    pub fn module_by_name(&self, name: &str) -> Option<&Module> {
         self.modules.iter().find(|m| m.name.eq(name))
     }
-    pub fn module_by_name_mut(&mut self, name: &String) -> Option<&mut Module> {
+    pub fn module_by_name_mut(&mut self, name: &str) -> Option<&mut Module> {
         self.modules.iter_mut().find(|m| m.name.eq(name))
     }
-    pub fn take_module_buy_name(&mut self, name: &String) -> Option<Module> {
+    pub fn take_module_buy_name(&mut self, name: &str) -> Option<Module> {
         let md = self.modules.iter().position(|m| m.name.eq(name));
         if let Some(poll_module) = md {
             Some(self.modules.remove(poll_module))
@@ -130,10 +126,10 @@ impl Module {
     pub fn push_gate(&mut self, ident: String, gate: Gate) {
         self.gates.insert(ident, gate);
     }
-    pub fn gate_mut_by_name(&mut self, ident: &String) -> Option<&mut Gate> {
+    pub fn gate_mut_by_name(&mut self, ident: &str) -> Option<&mut Gate> {
         self.gates.get_mut(ident)
     }
-    pub fn remove_gate(&mut self, ident: &String) -> Option<Gate> {
+    pub fn remove_gate(&mut self, ident: &str) -> Option<Gate> {
         self.gates.remove(ident)
     }
     pub fn inputs(&self) -> &HashSet<Wire> {
@@ -148,6 +144,7 @@ impl Module {
     pub fn pins(&self) -> Vec<&Wire> {
         self.inputs.iter().chain(&self.outputs).collect()
     }
+    // TODO: does Module have this responsibility?
     pub fn add_observation_point(&mut self, signal: &String) -> Result<String, ModuleError> {
         let signal = signal.split("/").collect::<Vec<_>>();
         if signal.len() == 1 {
@@ -179,6 +176,7 @@ impl Module {
             )))
         }
     }
+    // TODO: does Module have this responsibility?
     pub fn insert_stuck_at_fault(
         &self,
         new_module_name: String,
@@ -284,9 +282,9 @@ pub enum ModuleError {
 impl NetlistSerializer for Module {
     fn gen(&self) -> String {
         let mut module = format!(
-            "module {ident} ( {ports} );\n",
+            "module {ident} ( {pins} );\n",
             ident = self.name,
-            ports = self
+            pins = self
                 .pins()
                 .into_iter()
                 .map(|pin| pin.name.clone())
@@ -507,13 +505,13 @@ mod test {
 
     #[test]
     fn expansion_config() -> VerilogTestResult {
-        let verilog = Verilog::from_file(String::from("b02_net.v"))?;
+        let verilog = Verilog::from_file("b02_net.v")?;
         Ok(())
     }
 
     #[test]
     fn insert_fault() -> VerilogTestResult {
-        let verilog = Verilog::from_file(String::from("b02_net.v"))?;
+        let verilog = Verilog::from_file("b02_net.v")?;
         let module = verilog.modules.get(0).unwrap();
         eprintln!("{}", module.gen());
         let fmodule = module.insert_stuck_at_fault(
@@ -541,7 +539,7 @@ mod test {
 
     #[test]
     fn add_observation_point() -> VerilogTestResult {
-        let mut verilog = Verilog::from_file(String::from("b02_net.v"))?;
+        let mut verilog = Verilog::from_file("b02_net.v")?;
         let mut module = verilog.take_module_buy_name(&String::from("b02")).unwrap();
         eprintln!("{}", module.gen());
         module.add_observation_point(&String::from("U24/A"))?;

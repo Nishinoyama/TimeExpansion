@@ -26,6 +26,9 @@ pub struct ExpansionConfig {
 }
 
 impl ExpansionConfig {
+    pub fn top_module(&self) -> &str {
+        &self.top_module
+    }
     fn read_file(&self, file_name: &str) -> std::io::Result<Vec<String>> {
         let config_file = File::open(file_name)?;
         let config_buf_reader = BufReader::new(config_file);
@@ -134,39 +137,37 @@ impl ExpansionConfig {
     pub fn input_file(&self) -> &String {
         &self.input_file
     }
-    fn extract_ff_gates(&self, module: &Module) -> Vec<(&FFDefinition, String, Gate)> {
+    fn extract_ff_gates(&self, module: &Module) -> Vec<(&FFDefinition, Wire, Gate)> {
         module
             .gates()
-            .iter()
+            .into_iter()
             .filter_map(|(s, g)| {
                 if let Some(ff_type) = self
                     .ff_definitions
                     .iter()
                     .find(|ff_def| g.name().eq(&ff_def.name))
                 {
-                    Some((ff_type, s.clone(), g.clone()))
+                    Some((ff_type, Wire::new_single(s.clone()), g.clone()))
                 } else {
                     None
                 }
             })
             .collect()
     }
+    // TODO: does Config have this responsibility?
     /// Generates combinational part from full scan designed circuitry module, their Pseudo Inputs' and Pseudo Outputs' port name.
     /// FFs', in the module, inputs and outputs become the extracted combinational module's inputs and outputs respectively.
     /// Such inputs and outputs are called Pseudo Inputs/Outputs
-    pub fn extract_combinational_part(
-        &self,
-        module: &Module,
-    ) -> (Module, Vec<String>, Vec<String>) {
+    pub fn extract_combinational_part(&self, module: &Module) -> (Module, Vec<Wire>, Vec<Wire>) {
         let mut combinational_part = module.clone();
         let mut pseudo_primary_inputs = Vec::new();
         let mut pseudo_primary_outputs = Vec::new();
         self.extract_ff_gates(&module)
             .into_iter()
             .enumerate()
-            .for_each(|(i, (ff_def, ident, ff_gate))| {
-                let ppi = format!("ppi_{}_{}", i + 1, ident);
-                let ppo = format!("ppo_{}_{}", i + 1, ident);
+            .for_each(|(i, (ff_def, wire, ff_gate))| {
+                let ppi = format!("ppi_{}_{}", i + 1, wire.name());
+                let ppo = format!("ppo_{}_{}", i + 1, wire.name());
                 for port in ff_def.data_in.iter() {
                     if let Some(port_wire) = ff_gate.port_by_name(port) {
                         combinational_part.push_assign(format!(
@@ -195,10 +196,10 @@ impl ExpansionConfig {
                         }
                     }
                 }
-                combinational_part.remove_gate(&ident);
+                combinational_part.remove_gate(wire.name());
 
-                pseudo_primary_inputs.push(ppi);
-                pseudo_primary_outputs.push(ppo);
+                pseudo_primary_inputs.push(Wire::new_single(ppi));
+                pseudo_primary_outputs.push(Wire::new_single(ppo));
             });
         for clock in self.clock_pins.iter().cloned() {
             combinational_part.remove_input(&Wire::new_single(clock));
@@ -217,13 +218,14 @@ impl ExpansionConfig {
             pseudo_primary_outputs,
         )
     }
+    // TODO: does Config have this responsibility?
     /// Generates time expansion model from full scan designed circuitry module.
     /// Expansion method is preferred by [`ExpansionMethod`]
     /// if not `use_primary_io`, primary inputs will be restricted and primary outputs will be masked.
     pub fn time_expand(&self) -> Verilog {
         match self.expand_method {
             Some(Broadside) => {
-                let verilog = Verilog::from_config(self);
+                let verilog = Verilog::from(self.clone());
                 let top_module = verilog.module_by_name(&self.top_module).unwrap();
                 let (combinational_part, ppis, ppos) = self.extract_combinational_part(top_module);
                 let clone_circuit_c1 = combinational_part.clone_with_name_prefix("_cmb_c1");
@@ -246,7 +248,7 @@ impl ExpansionConfig {
                     let c1_output_name = format!("{}_c1", output.name());
                     *gate_c1.port_by_name_mut(output.name()).unwrap().wire_mut() =
                         c1_output_name.clone();
-                    if ppos.iter().any(|ppo| output.name().contains(ppo)) {
+                    if ppos.iter().any(|ppo| output.name().contains(ppo.name())) {
                         *output.name_mut() = c1_output_name.clone();
                         expanded_module.push_wire(output);
                     } else {
@@ -256,7 +258,7 @@ impl ExpansionConfig {
 
                 // chain c1 ppi to c2 ppo
                 for (ppi, ppo) in ppis.iter().zip(ppos.iter()) {
-                    expanded_module.push_assign(format!("{}_c2 = {}_c1", ppi, ppo));
+                    expanded_module.push_assign(format!("{}_c2 = {}_c1", ppi.name(), ppo.name()));
                 }
 
                 // chain c1 pi wires (bs_model inputs if use_primary_io) to c2 ppi
@@ -264,7 +266,7 @@ impl ExpansionConfig {
                     let c2_input_name = format!("{}_c2", input.name());
                     *gate_c2.port_by_name_mut(input.name()).unwrap().wire_mut() =
                         c2_input_name.clone();
-                    if !ppis.iter().any(|ppi| input.name().contains(ppi)) {
+                    if !ppis.iter().any(|ppi| input.name().contains(ppi.name())) {
                         *input.name_mut() = c2_input_name;
                         if self.use_primary_io {
                             expanded_module.push_input(input);
@@ -285,7 +287,9 @@ impl ExpansionConfig {
                     let c2_output_name = format!("{}_c2", output.name());
                     *gate_c2.port_by_name_mut(output.name()).unwrap().wire_mut() =
                         c2_output_name.clone();
-                    if self.use_primary_io || ppos.iter().any(|ppo| output.name().contains(ppo)) {
+                    if self.use_primary_io
+                        || ppos.iter().any(|ppo| output.name().contains(ppo.name()))
+                    {
                         expanded_module.push_assign(format!(
                             "{} = {}",
                             output.name(),
@@ -313,6 +317,7 @@ impl ExpansionConfig {
             _ => Verilog::default(),
         }
     }
+    // TODO: does Config have this responsibility?
     ///
     /// insert restricted value gates for generating atpg model
     ///
@@ -415,6 +420,12 @@ impl ExpansionConfig {
         ec_verilog.push_module(c2_imp);
 
         Ok(ec_verilog)
+    }
+}
+
+impl From<ExpansionConfig> for Verilog {
+    fn from(cfg: ExpansionConfig) -> Self {
+        Self::from_file(cfg.input_file()).unwrap()
     }
 }
 
@@ -634,7 +645,7 @@ mod test {
     #[test]
     pub fn extract_combinational_part() {
         let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        let verilog = Verilog::from_config(&ec);
+        let verilog = Verilog::from(ec.clone());
         let m = verilog.module_by_name(&ec.top_module).unwrap();
         let (c, ppis, ppos) = ec.extract_combinational_part(m);
         eprintln!("{}", c.gen());
