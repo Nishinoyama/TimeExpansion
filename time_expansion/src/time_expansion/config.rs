@@ -1,7 +1,5 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
-use crate::verilog;
-use crate::verilog::fault::Fault;
-use crate::verilog::{Gate, Module, PortWire, Verilog, Wire};
+use crate::verilog::{Gate, PortWire, Verilog};
 use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
@@ -9,6 +7,53 @@ use std::io::BufReader;
 use std::iter::Enumerate;
 use std::option::Option::Some;
 use std::slice::Iter;
+
+#[macro_export]
+macro_rules! gen_configured_trait {
+    ($struct_name:ident, $cfg_field:ident) => {
+        impl ConfiguredTrait for $struct_name {
+            fn cfg_expand_method(&self) -> &Option<crate::time_expansion::config::ExpansionMethod> {
+                self.$cfg_field.cfg_expand_method()
+            }
+            fn cfg_input_file(&self) -> &str {
+                self.$cfg_field.cfg_input_file()
+            }
+            fn cfg_output_file(&self) -> &str {
+                self.$cfg_field.cfg_output_file()
+            }
+            fn cfg_top_module(&self) -> &str {
+                self.$cfg_field.cfg_top_module()
+            }
+            fn cfg_clock_pins(&self) -> &Vec<String> {
+                self.$cfg_field.cfg_clock_pins()
+            }
+            fn cfg_use_primary_io(&self) -> bool {
+                self.$cfg_field.cfg_use_primary_io()
+            }
+            fn cfg_equivalent_check(&self) -> &(bool, String) {
+                self.$cfg_field.cfg_equivalent_check()
+            }
+            fn cfg_ff_definitions(&self) -> &Vec<crate::time_expansion::config::FFDefinition> {
+                self.$cfg_field.cfg_ff_definitions()
+            }
+            fn cfg_inv_definition(&self) -> &crate::time_expansion::config::InvDefinition {
+                self.$cfg_field.cfg_inv_definition()
+            }
+        }
+    };
+}
+
+pub trait ConfiguredTrait {
+    fn cfg_expand_method(&self) -> &Option<ExpansionMethod>;
+    fn cfg_input_file(&self) -> &str;
+    fn cfg_output_file(&self) -> &str;
+    fn cfg_top_module(&self) -> &str;
+    fn cfg_clock_pins(&self) -> &Vec<String>;
+    fn cfg_use_primary_io(&self) -> bool;
+    fn cfg_equivalent_check(&self) -> &(bool, String);
+    fn cfg_ff_definitions(&self) -> &Vec<FFDefinition>;
+    fn cfg_inv_definition(&self) -> &InvDefinition;
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct ExpansionConfig {
@@ -25,10 +70,37 @@ pub struct ExpansionConfig {
     inv_definition: InvDefinition,
 }
 
-impl ExpansionConfig {
-    pub fn top_module(&self) -> &str {
-        &self.top_module
+impl ConfiguredTrait for ExpansionConfig {
+    fn cfg_expand_method(&self) -> &Option<ExpansionMethod> {
+        self.expand_method()
     }
+    fn cfg_input_file(&self) -> &str {
+        self.input_file()
+    }
+    fn cfg_output_file(&self) -> &str {
+        self.output_file()
+    }
+    fn cfg_top_module(&self) -> &str {
+        self.top_module()
+    }
+    fn cfg_clock_pins(&self) -> &Vec<String> {
+        self.clock_pins()
+    }
+    fn cfg_use_primary_io(&self) -> bool {
+        self.use_primary_io()
+    }
+    fn cfg_equivalent_check(&self) -> &(bool, String) {
+        self.equivalent_check()
+    }
+    fn cfg_ff_definitions(&self) -> &Vec<FFDefinition> {
+        self.ff_definitions()
+    }
+    fn cfg_inv_definition(&self) -> &InvDefinition {
+        self.inv_definition()
+    }
+}
+
+impl ExpansionConfig {
     fn read_file(&self, file_name: &str) -> std::io::Result<Vec<String>> {
         let config_file = File::open(file_name)?;
         let config_buf_reader = BufReader::new(config_file);
@@ -134,292 +206,32 @@ impl ExpansionConfig {
         Ok(config)
     }
     /// Returns input file name specified by config.
-    pub fn input_file(&self) -> &String {
+    pub fn expand_method(&self) -> &Option<ExpansionMethod> {
+        &self.expand_method
+    }
+    pub fn input_file(&self) -> &str {
         &self.input_file
     }
-    fn extract_ff_gates(&self, module: &Module) -> Vec<(&FFDefinition, Wire, Gate)> {
-        module
-            .gates()
-            .into_iter()
-            .filter_map(|(s, g)| {
-                if let Some(ff_type) = self
-                    .ff_definitions
-                    .iter()
-                    .find(|ff_def| g.name().eq(&ff_def.name))
-                {
-                    Some((ff_type, Wire::new_single(s.clone()), g.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect()
+    pub fn output_file(&self) -> &str {
+        &self.output_file
     }
-    // TODO: does Config have this responsibility?
-    /// Generates combinational part from full scan designed circuitry module, their Pseudo Inputs' and Pseudo Outputs' port name.
-    /// FFs', in the module, inputs and outputs become the extracted combinational module's inputs and outputs respectively.
-    /// Such inputs and outputs are called Pseudo Inputs/Outputs
-    pub fn extract_combinational_part(&self, module: &Module) -> (Module, Vec<Wire>, Vec<Wire>) {
-        let mut combinational_part = module.clone();
-        let mut pseudo_primary_inputs = Vec::new();
-        let mut pseudo_primary_outputs = Vec::new();
-        self.extract_ff_gates(&module)
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (ff_def, wire, ff_gate))| {
-                let ppi = format!("ppi_{}_{}", i + 1, wire.name());
-                let ppo = format!("ppo_{}_{}", i + 1, wire.name());
-                for port in ff_def.data_in.iter() {
-                    if let Some(port_wire) = ff_gate.port_by_name(port) {
-                        combinational_part.push_assign(format!(
-                            "{ppo} = {wire_from_port}",
-                            ppo = ppo,
-                            wire_from_port = port_wire.wire(),
-                        ));
-                        combinational_part.push_output(Wire::new_single(ppo.clone()));
-                    }
-                }
-                for port in ff_def.data_out.iter() {
-                    if let Some(port_wire) = ff_gate.port_by_name(port) {
-                        combinational_part.push_input(Wire::new_single(ppi.clone()));
-                        if port.contains("N") {
-                            combinational_part.push_gate(
-                                format!("UN{}", i + 1),
-                                self.inv_definition
-                                    .to_gate(ppi.clone(), port_wire.wire().to_string()),
-                            );
-                        } else {
-                            combinational_part.push_assign(format!(
-                                "{} = {}",
-                                port_wire.wire(),
-                                ppi
-                            ));
-                        }
-                    }
-                }
-                combinational_part.remove_gate(wire.name());
-
-                pseudo_primary_inputs.push(Wire::new_single(ppi));
-                pseudo_primary_outputs.push(Wire::new_single(ppo));
-            });
-        for clock in self.clock_pins.iter().cloned() {
-            combinational_part.remove_input(&Wire::new_single(clock));
-        }
-        for test_s_pin in module
-            .pins()
-            .into_iter()
-            .filter(|pin| pin.name().contains("test_s"))
-        {
-            combinational_part.remove_input(&test_s_pin);
-            combinational_part.remove_output(&test_s_pin);
-        }
-        (
-            combinational_part,
-            pseudo_primary_inputs,
-            pseudo_primary_outputs,
-        )
+    pub fn top_module(&self) -> &str {
+        &self.top_module
     }
-    // TODO: does Config have this responsibility?
-    /// Generates time expansion model from full scan designed circuitry module.
-    /// Expansion method is preferred by [`ExpansionMethod`]
-    /// if not `use_primary_io`, primary inputs will be restricted and primary outputs will be masked.
-    pub fn time_expand(&self) -> Verilog {
-        match self.expand_method {
-            Some(Broadside) => {
-                let verilog = Verilog::from(self.clone());
-                let top_module = verilog.module_by_name(&self.top_module).unwrap();
-                let (combinational_part, ppis, ppos) = self.extract_combinational_part(top_module);
-                let clone_circuit_c1 = combinational_part.clone_with_name_prefix("_cmb_c1");
-                let clone_circuit_c2 = combinational_part.clone_with_name_prefix("_cmb_c2");
-                let mut gate_c1 = clone_circuit_c1.to_gate();
-                let mut gate_c2 = clone_circuit_c2.to_gate();
-                let mut expanded_module = Module::new_with_name(format!("{}_bs", self.top_module));
-
-                // connect bs_model inputs to c1 pi, ppis
-                for mut input in clone_circuit_c1.inputs().iter().cloned() {
-                    let c1_input_name = format!("{}_c1", input.name());
-                    *gate_c1.port_by_name_mut(input.name()).unwrap().wire_mut() =
-                        c1_input_name.clone();
-                    *input.name_mut() = c1_input_name.clone();
-                    expanded_module.push_input(input);
-                }
-
-                // set c1 ppos, remove pos,
-                for mut output in clone_circuit_c1.outputs().iter().cloned() {
-                    let c1_output_name = format!("{}_c1", output.name());
-                    *gate_c1.port_by_name_mut(output.name()).unwrap().wire_mut() =
-                        c1_output_name.clone();
-                    if ppos.iter().any(|ppo| output.name().contains(ppo.name())) {
-                        *output.name_mut() = c1_output_name.clone();
-                        expanded_module.push_wire(output);
-                    } else {
-                        gate_c1.take_port_by_name(output.name());
-                    }
-                }
-
-                // chain c1 ppi to c2 ppo
-                for (ppi, ppo) in ppis.iter().zip(ppos.iter()) {
-                    expanded_module.push_assign(format!("{}_c2 = {}_c1", ppi.name(), ppo.name()));
-                }
-
-                // chain c1 pi wires (bs_model inputs if use_primary_io) to c2 ppi
-                for mut input in clone_circuit_c1.inputs().iter().cloned() {
-                    let c2_input_name = format!("{}_c2", input.name());
-                    *gate_c2.port_by_name_mut(input.name()).unwrap().wire_mut() =
-                        c2_input_name.clone();
-                    if !ppis.iter().any(|ppi| input.name().contains(ppi.name())) {
-                        *input.name_mut() = c2_input_name;
-                        if self.use_primary_io {
-                            expanded_module.push_input(input);
-                        } else {
-                            expanded_module.push_assign(format!(
-                                "{}_c2 = {}_c1",
-                                input.name(),
-                                input.name()
-                            ));
-                            expanded_module.push_wire(input);
-                        }
-                    }
-                }
-
-                // chain c2 ppos (and pos if use_primary_io) to bs_model outputs
-                // remove c2 pos if not use_primary_io
-                for mut output in clone_circuit_c1.outputs().iter().cloned() {
-                    let c2_output_name = format!("{}_c2", output.name());
-                    *gate_c2.port_by_name_mut(output.name()).unwrap().wire_mut() =
-                        c2_output_name.clone();
-                    if self.use_primary_io
-                        || ppos.iter().any(|ppo| output.name().contains(ppo.name()))
-                    {
-                        expanded_module.push_assign(format!(
-                            "{} = {}",
-                            output.name(),
-                            c2_output_name
-                        ));
-                        expanded_module.push_output(output.clone());
-                        *output.name_mut() = c2_output_name.clone();
-                        expanded_module.push_wire(output);
-                    } else {
-                        gate_c2.take_port_by_name(output.name());
-                    }
-                }
-
-                expanded_module.push_gate(String::from("c1"), gate_c1);
-                expanded_module.push_gate(String::from("c2"), gate_c2);
-
-                let mut verilog = Verilog::default();
-                verilog.push_module(expanded_module);
-                verilog.push_module(clone_circuit_c1);
-                verilog.push_module(clone_circuit_c2);
-
-                verilog
-            }
-            Some(SkewedLoad) => Verilog::default(),
-            _ => Verilog::default(),
-        }
+    pub fn clock_pins(&self) -> &Vec<String> {
+        &self.clock_pins
     }
-    // TODO: does Config have this responsibility?
-    ///
-    /// insert restricted value gates for generating atpg model
-    ///
-    pub fn atpg_model_time_expand(&self) -> Result<Verilog, String> {
-        let mut atpg_model = self.time_expand();
-        let c1_name = format!("{}_cmb_c1", self.top_module);
-        let c2_name = format!("{}_cmb_c2", self.top_module);
-        let te_module_name = format!("{}_bs", self.top_module);
-
-        let c2_outputs = atpg_model
-            .module_by_name(&c2_name)
-            .unwrap()
-            .outputs()
-            .clone();
-
-        // gen observable wire in c1 for restriction
-        let c1_module = atpg_model.module_by_name_mut(&c1_name).unwrap();
-        let observable_wire = c1_module
-            .add_observation_point(&self.equivalent_check.1)
-            .unwrap();
-
-        // take restriction wire from c1
-        let te_module = atpg_model.module_by_name_mut(&te_module_name).unwrap();
-        let restriction_wire = observable_wire;
-        te_module.push_wire(Wire::new_single(restriction_wire.clone()));
-        let c1_gate = te_module.gate_mut_by_name(&String::from("c1")).unwrap();
-        c1_gate.push_port(PortWire::Wire(
-            restriction_wire.clone(),
-            restriction_wire.clone(),
-        ));
-
-        let restricted_outputs = c2_outputs
-            .into_iter()
-            .filter_map(|ppo| {
-                te_module
-                    .assigns()
-                    .iter()
-                    .find(|assign| assign.ends_with(&format!("{}_c2", ppo.name())))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        restricted_outputs
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, res_assign)| {
-                use crate::verilog::PortWire::Wire;
-                let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
-                let po = res_out.next().unwrap();
-                let ppo_c2 = res_out.next().unwrap();
-                let ppo_r = format!("{}_{}", ppo_c2, self.equivalent_check.1.replace("/", "_"));
-                let mut restriction_gate = Gate::default();
-                *restriction_gate.name_mut() = String::from(if self.equivalent_check.0 {
-                    "AN2"
-                } else {
-                    "OR2"
-                });
-                restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
-                restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
-                te_module.push_gate(
-                    format!("R{}_{}", i + 1, self.equivalent_check.1.replace("/", "_")),
-                    restriction_gate,
-                );
-                te_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));
-                te_module.push_wire(verilog::Wire::new_single(ppo_r));
-                te_module.remove_assigns_by_assign(&res_assign);
-            });
-
-        Ok(atpg_model)
+    pub fn use_primary_io(&self) -> bool {
+        self.use_primary_io
     }
-    /// Gen 2 modules for Equivalent-Check at transition fault.
-    pub fn equivalent_check(&self) -> Result<Verilog, String> {
-        let mut ec_verilog = self.atpg_model_time_expand().unwrap();
-        let bs_top_name = format!("{}_bs", self.top_module);
-
-        // build bs_ref and bs_imp
-        // replace bs_imp's c2 gate with c2_imp
-        let bs_ref = ec_verilog.module_by_name_mut(&bs_top_name).unwrap();
-        *bs_ref.name_mut() = format!("{}_ref", bs_top_name);
-        let mut bs_imp = bs_ref.clone();
-        *bs_imp.name_mut() = format!("{}_imp", bs_top_name);
-        *bs_imp
-            .gate_mut_by_name(&String::from("c2"))
-            .unwrap()
-            .name_mut() = format!("{}_cmb_c2_imp", self.top_module);
-        ec_verilog.push_module(bs_imp);
-
-        // insert stuck-at-fault into c2
-        let c2_ref = ec_verilog
-            .module_by_name_mut(&format!("{}_cmb_c2", self.top_module))
-            .unwrap();
-        let c2_imp = c2_ref
-            .insert_stuck_at_fault(
-                format!("{}_cmb_c2_imp", self.top_module),
-                &Fault::new(self.equivalent_check.1.clone(), self.equivalent_check.0),
-            )
-            .ok()
-            .unwrap();
-        ec_verilog.push_module(c2_imp);
-
-        Ok(ec_verilog)
+    pub fn equivalent_check(&self) -> &(bool, String) {
+        &self.equivalent_check
+    }
+    pub fn ff_definitions(&self) -> &Vec<FFDefinition> {
+        &self.ff_definitions
+    }
+    pub fn inv_definition(&self) -> &InvDefinition {
+        &self.inv_definition
     }
 }
 
@@ -516,7 +328,18 @@ impl FFDefinition {
         }
         return ff_defines;
     }
-
+    pub fn data_in(&self) -> &Vec<String> {
+        &self.data_in
+    }
+    pub fn data_out(&self) -> &Vec<String> {
+        &self.data_out
+    }
+    pub fn control(&self) -> &Vec<String> {
+        &self.control
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     pub fn name_mut(&mut self) -> &mut String {
         &mut self.name
     }
@@ -567,11 +390,12 @@ impl InvDefinition {
     pub fn output(&self) -> &str {
         &self.output
     }
-    /// Return if any of field is empty.
+    /// Returns if any of field is empty.
     pub fn is_empty(&self) -> bool {
         self.name.is_empty() || self.input.is_empty() || self.output.is_empty()
     }
-    fn to_gate(&self, input_wire: String, output_wire: String) -> Gate {
+    /// Generates inv gate with input/output wire.
+    pub fn to_gate(&self, input_wire: String, output_wire: String) -> Gate {
         use PortWire::Wire;
         let mut inv_gate = Gate::default();
         *inv_gate.name_mut() = self.name.clone();
@@ -585,8 +409,6 @@ impl InvDefinition {
 mod test {
     use crate::time_expansion::config::ExpansionMethod::Broadside;
     use crate::time_expansion::config::{ExpansionConfig, FFDefinition, InvDefinition};
-    use crate::verilog::netlist_serializer::NetlistSerializer;
-    use crate::verilog::Verilog;
 
     #[test]
     fn expansion_config() {
@@ -640,39 +462,5 @@ mod test {
                 output: String::from("Z")
             }
         )
-    }
-
-    #[test]
-    pub fn extract_combinational_part() {
-        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        let verilog = Verilog::from(ec.clone());
-        let m = verilog.module_by_name(&ec.top_module).unwrap();
-        let (c, ppis, ppos) = ec.extract_combinational_part(m);
-        eprintln!("{}", c.gen());
-        eprintln!("ppis = {:?}", ppis);
-        eprintln!("ppos = {:?}", ppos);
-    }
-
-    #[test]
-    pub fn expand_circuit() {
-        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        let v = ec.time_expand();
-        eprintln!("{}", v.gen());
-    }
-
-    #[test]
-    pub fn atpg_model_time_expand() -> Result<(), String> {
-        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        let v = ec.atpg_model_time_expand()?;
-        eprintln!("{}", v.gen());
-        Ok(())
-    }
-
-    #[test]
-    pub fn equivalent_check() -> Result<(), String> {
-        let ec = ExpansionConfig::from_file("expansion_example.conf").unwrap();
-        let v = ec.equivalent_check()?;
-        eprintln!("{}", v.gen());
-        Ok(())
     }
 }
