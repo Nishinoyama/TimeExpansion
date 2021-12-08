@@ -22,7 +22,11 @@ pub struct BroadSideExpansionModel {
     combinational_part_model: ExtractedCombinationalPartModel,
     expanded_model: Verilog,
 }
+
 impl BroadSideExpansionModel {
+    pub fn combinational_part_model(&self) -> &ExtractedCombinationalPartModel {
+        &self.combinational_part_model
+    }
     pub fn expanded_model(&self) -> &Verilog {
         &self.expanded_model
     }
@@ -66,8 +70,7 @@ impl TimeExpansionModel for BroadSideExpansionModel {
     }
 }
 impl From<ExtractedCombinationalPartModel> for BroadSideExpansionModel {
-    /// Generates time expansion model from full scan designed circuitry module.
-    /// Expansion method is preferred by [`ExpansionMethod`]
+    /// Generates board side time expansion model from full scan designed circuitry module.
     /// if not `use_primary_io`, primary inputs will be restricted and primary outputs will be masked.
     fn from(combinational_part_model: ExtractedCombinationalPartModel) -> Self {
         let c1_module = combinational_part_model
@@ -86,47 +89,46 @@ impl From<ExtractedCombinationalPartModel> for BroadSideExpansionModel {
             Module::new_with_name(format!("{}_bs", combinational_part_model.cfg_top_module()));
 
         // connect bs_model inputs to c1 pi, ppis
-        for mut input in c1_module.inputs().iter().cloned() {
+        for mut input in pis.iter().chain(ppis).cloned() {
             let c1_input_name = format!("{}_c1", input.name());
             *gate_c1.port_by_name_mut(input.name()).unwrap().wire_mut() = c1_input_name.clone();
             *input.name_mut() = c1_input_name.clone();
             expanded_module.push_input(input);
         }
 
-        // set c1 ppos, remove pos,
-        for mut output in c1_module.outputs().iter().cloned() {
-            let c1_output_name = format!("{}_c1", output.name());
-            *gate_c1.port_by_name_mut(output.name()).unwrap().wire_mut() = c1_output_name.clone();
-            if ppos.iter().any(|ppo| output.name().contains(ppo.name())) {
-                *output.name_mut() = c1_output_name.clone();
-                expanded_module.push_wire(output);
-            } else {
-                gate_c1.take_port_by_name(output.name());
-            }
+        // set c1 ppos
+        for mut ppo in ppos.iter().cloned() {
+            let c1_output_name = format!("{}_c1", ppo.name());
+            *gate_c1.port_by_name_mut(ppo.name()).unwrap().wire_mut() = c1_output_name.clone();
+            *ppo.name_mut() = c1_output_name.clone();
+            expanded_module.push_wire(ppo);
+        }
+        // remove c1 pos
+        for po in pos {
+            gate_c1.take_port_by_name(po.name());
         }
 
-        // chain c1 ppi to c2 ppo
+        // chain c1 ppo to c2 ppi
         for (ppi, ppo) in combinational_part_model.pseudo_primary_ios().iter() {
             expanded_module.push_assign(format!("{}_c2 = {}_c1", ppi.name(), ppo.name()));
         }
 
-        // chain c1 pi wires (bs_model inputs if use_primary_io) to c2 ppi
-        for mut input in c1_module.inputs().iter().cloned() {
-            let c2_input_name = format!("{}_c2", input.name());
-            *gate_c2.port_by_name_mut(input.name()).unwrap().wire_mut() = c2_input_name.clone();
-            if !ppis.iter().any(|ppi| input.name().contains(ppi.name())) {
-                if combinational_part_model.cfg_use_primary_io() {
-                    *input.name_mut() = c2_input_name;
-                    expanded_module.push_input(input);
-                } else {
-                    expanded_module.push_assign(format!(
-                        "{}_c2 = {}_c1",
-                        input.name(),
-                        input.name()
-                    ));
-                    expanded_module.push_wire(input);
-                }
+        // chain c1 pi wires (bs_model inputs if use_primary_io) to c2 pi
+        for mut pi in pis.iter().cloned() {
+            let c2_input_name = format!("{}_c2", pi.name());
+            *gate_c2.port_by_name_mut(pi.name()).unwrap().wire_mut() = c2_input_name.clone();
+            if combinational_part_model.cfg_use_primary_io() {
+                *pi.name_mut() = c2_input_name;
+                expanded_module.push_input(pi);
+            } else {
+                expanded_module.push_assign(format!("{}_c2 = {}_c1", pi.name(), pi.name()));
+                *pi.name_mut() = c2_input_name;
+                expanded_module.push_wire(pi);
             }
+        }
+        for ppi in ppis {
+            let c2_input_name = format!("{}_c2", ppi.name());
+            *gate_c2.port_by_name_mut(ppi.name()).unwrap().wire_mut() = c2_input_name.clone();
         }
 
         // chain c2 ppos (and pos if use_primary_io) to bs_model outputs
@@ -288,7 +290,7 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                 );
                 top_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));
                 top_module.push_wire(Wire::new_single(ppo_r));
-                top_module.remove_assigns_by_assign(&res_assign);
+                top_module.remove_assign(&res_assign);
             });
 
         let c2_module = bs_model.c2_module().clone();
@@ -302,16 +304,6 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
             atpg_model,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct BroadSideDiExpansionModel {
-    expansion_model: BroadSideExpansionModel,
-}
-
-#[derive(Debug)]
-pub struct BroadSideDiExpansionATPGModel {
-    bsd_model: BroadSideDiExpansionModel,
 }
 
 #[cfg(test)]

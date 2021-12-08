@@ -116,7 +116,7 @@ impl Module {
     pub fn push_assign(&mut self, assign: String) {
         self.assigns.push(assign);
     }
-    pub fn remove_assigns_by_assign(&mut self, assign: &String) -> Option<String> {
+    pub fn remove_assign(&mut self, assign: &String) -> Option<String> {
         if let Some(i) = self.assigns.iter().position(|s| s.eq(assign)) {
             Some(self.assigns.remove(i))
         } else {
