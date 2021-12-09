@@ -14,6 +14,12 @@ impl DiExpansionModel {
     pub fn expanded_model(&self) -> &Verilog {
         &self.expanded_model
     }
+    fn sa0_suffix() -> &'static str {
+        "_sa0"
+    }
+    fn sa1_suffix() -> &'static str {
+        "_sa1"
+    }
     fn c3_suffix() -> &'static str {
         "_c3"
     }
@@ -114,8 +120,8 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
             let c3_output_name = format!("{}{}", output.name(), DiExpansionModel::c3_suffix());
             expanded_module.remove_assign(&format!("{} = {}", output.name(), c2_output_name));
             *gate_c3.port_by_name_mut(output.name()).unwrap().wire_mut() = c3_output_name.clone();
-            *output_0.name_mut() = format!("{}_0", output.name());
-            *output_1.name_mut() = format!("{}_1", output.name());
+            *output_0.name_mut() = format!("{}{}", output.name(), DiExpansionModel::sa0_suffix());
+            *output_1.name_mut() = format!("{}{}", output.name(), DiExpansionModel::sa1_suffix());
             expanded_module.remove_output(&output);
             expanded_module.push_assign(format!("{} = {}", output_0.name(), c2_output_name));
             expanded_module.push_assign(format!("{} = {}", output_1.name(), c3_output_name));
