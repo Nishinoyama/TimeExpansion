@@ -2,7 +2,7 @@ use crate::gen_configured_trait;
 use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::time_expansion_model::{BroadSideExpansionModel, TimeExpansionModel};
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
-use crate::verilog::{Module, Verilog, Wire};
+use crate::verilog::{Module, PortWire, Verilog, Wire};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
@@ -14,20 +14,16 @@ impl DiExpansionModel {
     pub fn expanded_model(&self) -> &Verilog {
         &self.expanded_model
     }
-    fn combinational_part_name_with_suffix(&self, suffix: &str) -> String {
-        format!("{}{}", self.cfg_top_module(), suffix)
-    }
-    fn c1_name(&self) -> String {
-        self.combinational_part_name_with_suffix("_cmb_c1")
-    }
-    fn c2_name(&self) -> String {
-        self.combinational_part_name_with_suffix("_cmb_c2")
+    fn c3_suffix() -> &'static str {
+        "_c3"
     }
     fn c3_name(&self) -> String {
-        self.combinational_part_name_with_suffix("_cmb_c3")
+        self.combinational_part_name_with_suffix(Self::c3_suffix())
     }
-    fn top_name(&self) -> String {
-        self.combinational_part_name_with_suffix("_bs")
+    fn c3_module(&self) -> &Module {
+        self.expanded_model()
+            .module_by_name(self.c3_name().as_str())
+            .unwrap()
     }
 }
 gen_configured_trait!(DiExpansionModel, combinational_part_model);
@@ -66,7 +62,7 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
         let c2_module = bs_model.c2_module().clone();
         let c3_module = combinational_part_model
             .extracted_module()
-            .clone_with_name_prefix("_cmb_c3");
+            .clone_with_name_prefix(DiExpansionModel::c3_suffix());
         let ppis = combinational_part_model.pseudo_primary_inputs();
         let ppos = combinational_part_model.pseudo_primary_outputs();
         let pis = combinational_part_model.primary_inputs();
@@ -75,25 +71,28 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
 
         // chain c1 ppo to c3 ppi
         for (ppi, ppo) in combinational_part_model.pseudo_primary_ios().iter() {
-            expanded_module.push_assign(format!("{}_c3 = {}_c1", ppi.name(), ppo.name()));
+            let c3_ppi_name = format!("{}{}", ppi.name(), DiExpansionModel::c3_suffix());
+            let c1_ppo_name = format!("{}{}", ppo.name(), DiExpansionModel::c1_suffix());
+            expanded_module.push_assign(format!("{} = {}", c3_ppi_name, c1_ppo_name));
         }
 
         // chain c1 pi wires (bs_model inputs if use_primary_io) to c3 pi
         for mut pi in pis.iter().cloned() {
-            let c3_input_name = format!("{}_c3", pi.name());
-            *gate_c3.port_by_name_mut(pi.name()).unwrap().wire_mut() = c3_input_name.clone();
+            let c1_pi_name = format!("{}{}", pi.name(), DiExpansionModel::c1_suffix());
+            let c3_pi_name = format!("{}{}", pi.name(), DiExpansionModel::c3_suffix());
+            *gate_c3.port_by_name_mut(pi.name()).unwrap().wire_mut() = c3_pi_name.clone();
             if combinational_part_model.cfg_use_primary_io() {
-                *pi.name_mut() = c3_input_name;
+                *pi.name_mut() = c3_pi_name;
                 expanded_module.push_input(pi);
             } else {
-                expanded_module.push_assign(format!("{}_c3 = {}_c1", pi.name(), pi.name()));
-                *pi.name_mut() = c3_input_name;
+                expanded_module.push_assign(format!("{} = {}", c3_pi_name, c1_pi_name));
+                *pi.name_mut() = c3_pi_name;
                 expanded_module.push_wire(pi);
             }
         }
 
         for ppi in ppis.iter().cloned() {
-            let c3_input_name = format!("{}_c3", ppi.name());
+            let c3_input_name = format!("{}{}", ppi.name(), DiExpansionModel::c3_suffix());
             *gate_c3.port_by_name_mut(ppi.name()).unwrap().wire_mut() = c3_input_name.clone();
         }
 
@@ -111,21 +110,19 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
         for mut output in ppos_and_pos.into_iter().cloned() {
             let mut output_0 = output.clone();
             let mut output_1 = output.clone();
-            let c2_output_name = format!("{}_c2", output.name());
-            let c3_output_name = format!("{}_c3", output.name());
+            let c2_output_name = format!("{}{}", output.name(), DiExpansionModel::c2_suffix());
+            let c3_output_name = format!("{}{}", output.name(), DiExpansionModel::c3_suffix());
             expanded_module.remove_assign(&format!("{} = {}", output.name(), c2_output_name));
             *gate_c3.port_by_name_mut(output.name()).unwrap().wire_mut() = c3_output_name.clone();
-            *output.name_mut() = c3_output_name.clone();
             *output_0.name_mut() = format!("{}_0", output.name());
             *output_1.name_mut() = format!("{}_1", output.name());
             expanded_module.remove_output(&output);
             expanded_module.push_assign(format!("{} = {}", output_0.name(), c2_output_name));
             expanded_module.push_assign(format!("{} = {}", output_1.name(), c3_output_name));
-            expanded_module.push_output(output.clone());
-            expanded_module.push_output(output.clone());
+            *output.name_mut() = c3_output_name.clone();
             expanded_module.push_wire(output);
-            expanded_module.push_wire(output_0);
-            expanded_module.push_wire(output_1);
+            expanded_module.push_output(output_0.clone());
+            expanded_module.push_output(output_1.clone());
         }
 
         expanded_module.push_gate(String::from("c3"), gate_c3);
@@ -143,11 +140,150 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
     }
 }
 
+/*
 #[derive(Debug)]
-pub struct BroadSideDiExpansionATPGModel {
-    bsd_model: DiExpansionModel,
+pub struct DiExpansionATPGModel {
+    de_model: DiExpansionModel,
 }
+impl DiExpansionATPGModel {
+    fn equivalent_check(&self) -> Result<Verilog, String> {
+        let mut atpg_model = self.atpg_model.clone();
+        let bs_top_name = self.bs_model.top_name();
 
+        // build bs_ref and bs_imp
+        // replace bs_imp's c2 gate with c2_imp
+        let bs_ref = atpg_model.module_by_name_mut(&bs_top_name).unwrap();
+        *bs_ref.name_mut() = format!("{}_ref", bs_top_name);
+        let mut bs_imp = bs_ref.clone();
+        *bs_imp.name_mut() = format!("{}_imp", bs_top_name);
+        *bs_imp
+            .gate_mut_by_name(&String::from("c2"))
+            .unwrap()
+            .name_mut() = format!("{}_imp", self.c2_module().name());
+        atpg_model.push_module(bs_imp);
+
+        // insert stuck-at-fault into c2
+        let c2_ref = atpg_model
+            .module_by_name_mut(&self.c2_module().name())
+            .unwrap();
+        let c2_imp = c2_ref
+            .insert_stuck_at_fault(
+                format!("{}_imp", self.c2_module().name()),
+                &Fault::new(
+                    self.cfg_equivalent_check().1.clone(),
+                    self.cfg_equivalent_check().0,
+                ),
+            )
+            .ok()
+            .unwrap();
+        atpg_model.push_module(c2_imp);
+
+        Ok(atpg_model)
+    }
+}
+impl TopModule for DiExpansionATPGModel {
+    fn top_module(&self) -> &Module {
+        self.de_model.top_module()
+    }
+}
+impl TimeExpansionModel for DiExpansionATPGModel {
+    fn c1_module(&self) -> &Module {
+        self.de_model.c1_module()
+    }
+    fn c2_module(&self) -> &Module {
+        self.de_model.c2_module()
+    }
+    fn top_inputs(&self) -> &HashSet<Wire> {
+        self.de_model.top_inputs()
+    }
+    fn top_outputs(&self) -> &HashSet<Wire> {
+        self.de_model.top_outputs()
+    }
+}
+gen_configured_trait!(DiExpansionATPGModel, de_model);
+impl From<DiExpansionModel> for DiExpansionATPGModel {
+    /// insert restricted value gates for generating atpg model
+    fn from(de_model: DiExpansionModel) -> Self {
+        let mut atpg_model = Verilog::default();
+
+        // gen observable wire in c1 for restriction
+        let mut c1_module = de_model.c1_module().clone();
+        let observable_wire = c1_module
+            .add_observation_point(&de_model.cfg_equivalent_check().1)
+            .unwrap();
+
+        // take restriction wire from c1
+        let mut top_module = de_model.top_module().clone();
+        let restriction_wire = observable_wire;
+        top_module.push_wire(Wire::new_single(restriction_wire.clone()));
+        let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
+        c1_gate.push_port(PortWire::Wire(
+            restriction_wire.clone(),
+            restriction_wire.clone(),
+        ));
+
+        let c2_outputs = de_model.c2_module().outputs().clone();
+        let restricted_outputs = c2_outputs
+            .into_iter()
+            .filter_map(|ppo| {
+                top_module
+                    .assigns()
+                    .iter()
+                    .find(|assign| assign.ends_with(&format!("{}_c2", ppo.name())))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        restricted_outputs
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, res_assign)| {
+                let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
+                let po = res_out.next().unwrap();
+                let ppo_c2 = res_out.next().unwrap();
+                let ppo_r = format!(
+                    "{}_{}",
+                    ppo_c2,
+                    de_model.cfg_equivalent_check().1.replace("/", "_")
+                );
+                let mut restriction_gate = Gate::default();
+                *restriction_gate.name_mut() = String::from(if de_model.cfg_equivalent_check().0 {
+                    "AN2"
+                } else {
+                    "OR2"
+                });
+                {
+                    use crate::verilog::PortWire::Wire;
+                    restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
+                    restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
+                    restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
+                }
+                top_module.push_gate(
+                    format!(
+                        "R{}_{}",
+                        i + 1,
+                        de_model.cfg_equivalent_check().1.replace("/", "_")
+                    ),
+                    restriction_gate,
+                );
+                top_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));
+                top_module.push_wire(Wire::new_single(ppo_r));
+                top_module.remove_assign(&res_assign);
+            });
+
+        let c2_module = de_model.c2_module().clone();
+
+        atpg_model.push_module(top_module);
+        atpg_model.push_module(c1_module);
+        atpg_model.push_module(c2_module);
+
+        Self {
+            bs_model: de_model,
+            atpg_model,
+        }
+    }
+}
+*/
 #[cfg(test)]
 mod test {
     use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig};
