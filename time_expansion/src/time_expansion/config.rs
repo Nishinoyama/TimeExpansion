@@ -1,4 +1,5 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
+use crate::verilog::fault::Fault;
 use crate::verilog::{Gate, PortWire, Verilog};
 use regex::Regex;
 use std::fs::File;
@@ -30,7 +31,7 @@ macro_rules! gen_configured_trait {
             fn cfg_use_primary_io(&self) -> bool {
                 self.$cfg_field.cfg_use_primary_io()
             }
-            fn cfg_equivalent_check(&self) -> &(bool, String) {
+            fn cfg_equivalent_check(&self) -> &Fault {
                 self.$cfg_field.cfg_equivalent_check()
             }
             fn cfg_ff_definitions(&self) -> &Vec<crate::time_expansion::config::FFDefinition> {
@@ -50,7 +51,7 @@ pub trait ConfiguredTrait {
     fn cfg_top_module(&self) -> &str;
     fn cfg_clock_pins(&self) -> &Vec<String>;
     fn cfg_use_primary_io(&self) -> bool;
-    fn cfg_equivalent_check(&self) -> &(bool, String);
+    fn cfg_equivalent_check(&self) -> &Fault;
     fn cfg_ff_definitions(&self) -> &Vec<FFDefinition>;
     fn cfg_inv_definition(&self) -> &InvDefinition;
 }
@@ -65,7 +66,7 @@ pub struct ExpansionConfig {
     clock_pins: Vec<String>,
 
     use_primary_io: bool,
-    equivalent_check: (bool, String),
+    equivalent_check: Fault,
     ff_definitions: Vec<FFDefinition>,
     inv_definition: InvDefinition,
 }
@@ -89,7 +90,7 @@ impl ConfiguredTrait for ExpansionConfig {
     fn cfg_use_primary_io(&self) -> bool {
         self.use_primary_io()
     }
-    fn cfg_equivalent_check(&self) -> &(bool, String) {
+    fn cfg_equivalent_check(&self) -> &Fault {
         self.equivalent_check()
     }
     fn cfg_ff_definitions(&self) -> &Vec<FFDefinition> {
@@ -144,9 +145,9 @@ impl ExpansionConfig {
             } else if let Some(cap) = equivalent_check_regex.captures(line) {
                 let ec_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
                 if let Some(ec_cap) = ec_regex.captures(cap.get(1).unwrap().as_str()) {
-                    self.equivalent_check = (
-                        ec_cap.get(1).unwrap().as_str().eq("stf"),
+                    self.equivalent_check = Fault::new(
                         ec_cap.get(3).unwrap().as_str().to_string(),
+                        ec_cap.get(1).unwrap().as_str().eq("stf"),
                     )
                 } else {
                     return Err(format!(
@@ -179,7 +180,7 @@ impl ExpansionConfig {
         if self.clock_pins.is_empty() {
             eprintln!("Warning: clock-pins option is blank. (Asynchronous circuit?)");
         }
-        if self.expand_method.is_none() && self.equivalent_check.1.is_empty() {
+        if self.expand_method.is_none() && self.equivalent_check.location().is_empty() {
             Err("Error: expand-method option must be specified in the configuration file.")
         } else if self.input_file.is_empty() {
             Err("Error: input-file option must be specified in the configuration file.")
@@ -224,7 +225,7 @@ impl ExpansionConfig {
     pub fn use_primary_io(&self) -> bool {
         self.use_primary_io
     }
-    pub fn equivalent_check(&self) -> &(bool, String) {
+    pub fn equivalent_check(&self) -> &Fault {
         &self.equivalent_check
     }
     pub fn ff_definitions(&self) -> &Vec<FFDefinition> {
@@ -409,6 +410,7 @@ impl InvDefinition {
 mod test {
     use crate::time_expansion::config::ExpansionMethod::Broadside;
     use crate::time_expansion::config::{ExpansionConfig, FFDefinition, InvDefinition};
+    use crate::verilog::fault::Fault;
 
     #[test]
     fn expansion_config() {
@@ -418,7 +420,10 @@ mod test {
         assert_eq!(ec.output_file, "b01_bs_net.v");
         assert_eq!(ec.top_module, "b01");
         assert_eq!(ec.clock_pins, vec!["clock", "reset"]);
-        assert_eq!(ec.equivalent_check, (false, String::from("FLAG_reg/Q")));
+        assert_eq!(
+            ec.equivalent_check,
+            Fault::new(String::from("FLAG_reg/Q"), false)
+        );
         assert!(!ec.use_primary_io);
         assert_eq!(
             ec.ff_definitions,

@@ -1,5 +1,5 @@
 /// WIP! transition str/stf fault only!
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct Fault {
     location: String,
     sa_value: bool,

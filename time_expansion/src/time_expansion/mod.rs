@@ -1,5 +1,6 @@
 use crate::gen_configured_trait;
 use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig, FFDefinition};
+use crate::verilog::fault::Fault;
 use crate::verilog::{Gate, Module, Verilog, Wire};
 pub mod config;
 pub mod di_expansion_model;

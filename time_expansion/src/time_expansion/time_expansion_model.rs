@@ -208,10 +208,7 @@ impl BroadSideExpansionATPGModel {
         let c2_imp = c2_ref
             .insert_stuck_at_fault(
                 format!("{}_imp", self.c2_module().name()),
-                &Fault::new(
-                    self.cfg_equivalent_check().1.clone(),
-                    self.cfg_equivalent_check().0,
-                ),
+                &self.cfg_equivalent_check(),
             )
             .ok()
             .unwrap();
@@ -248,7 +245,7 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
         // gen observable wire in c1 for restriction
         let mut c1_module = bs_model.c1_module().clone();
         let observable_wire = c1_module
-            .add_observation_point(&bs_model.cfg_equivalent_check().1)
+            .add_observation_point(&bs_model.cfg_equivalent_check().location().to_string())
             .unwrap();
 
         // take restriction wire from c1
@@ -283,14 +280,15 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                 let ppo_r = format!(
                     "{}_{}",
                     ppo_c2,
-                    bs_model.cfg_equivalent_check().1.replace("/", "_")
+                    bs_model.cfg_equivalent_check().location().replace("/", "_")
                 );
                 let mut restriction_gate = Gate::default();
-                *restriction_gate.name_mut() = String::from(if bs_model.cfg_equivalent_check().0 {
-                    "AN2"
-                } else {
-                    "OR2"
-                });
+                *restriction_gate.name_mut() =
+                    String::from(if bs_model.cfg_equivalent_check().sa_value() {
+                        "AN2"
+                    } else {
+                        "OR2"
+                    });
                 {
                     use crate::verilog::PortWire::Wire;
                     restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
@@ -301,7 +299,7 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                     format!(
                         "R{}_{}",
                         i + 1,
-                        bs_model.cfg_equivalent_check().1.replace("/", "_")
+                        bs_model.cfg_equivalent_check().location().replace("/", "_")
                     ),
                     restriction_gate,
                 );
