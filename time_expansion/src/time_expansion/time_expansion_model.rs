@@ -208,7 +208,7 @@ impl BroadSideExpansionATPGModel {
         let c2_imp = c2_ref
             .insert_stuck_at_fault(
                 format!("{}_imp", self.c2_module().name()),
-                &self.cfg_equivalent_check(),
+                &self.cfg_equivalent_check().first().unwrap(),
             )
             .ok()
             .unwrap();
@@ -241,12 +241,11 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
     /// insert restricted value gates for generating atpg model
     fn from(bs_model: BroadSideExpansionModel) -> Self {
         let mut atpg_model = Verilog::default();
+        let fault = bs_model.cfg_equivalent_check().first().unwrap();
 
         // gen observable wire in c1 for restriction
         let mut c1_module = bs_model.c1_module().clone();
-        let observable_wire = c1_module
-            .add_observation_point(&bs_model.cfg_equivalent_check().location().to_string())
-            .unwrap();
+        let observable_wire = c1_module.add_observation_point(fault.location()).unwrap();
 
         // take restriction wire from c1
         let mut top_module = bs_model.top_module().clone();
@@ -277,18 +276,10 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                 let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
                 let po = res_out.next().unwrap();
                 let ppo_c2 = res_out.next().unwrap();
-                let ppo_r = format!(
-                    "{}_{}",
-                    ppo_c2,
-                    bs_model.cfg_equivalent_check().location().replace("/", "_")
-                );
+                let ppo_r = format!("{}_{}", ppo_c2, fault.location().replace("/", "_"));
                 let mut restriction_gate = Gate::default();
                 *restriction_gate.name_mut() =
-                    String::from(if bs_model.cfg_equivalent_check().sa_value() {
-                        "AN2"
-                    } else {
-                        "OR2"
-                    });
+                    String::from(if fault.sa_value() { "AN2" } else { "OR2" });
                 {
                     use crate::verilog::PortWire::Wire;
                     restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
@@ -296,11 +287,7 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                     restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
                 }
                 top_module.push_gate(
-                    format!(
-                        "R{}_{}",
-                        i + 1,
-                        bs_model.cfg_equivalent_check().location().replace("/", "_")
-                    ),
+                    format!("R{}_{}", i + 1, fault.location().replace("/", "_")),
                     restriction_gate,
                 );
                 top_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));

@@ -31,7 +31,7 @@ macro_rules! gen_configured_trait {
             fn cfg_use_primary_io(&self) -> bool {
                 self.$cfg_field.cfg_use_primary_io()
             }
-            fn cfg_equivalent_check(&self) -> &Fault {
+            fn cfg_equivalent_check(&self) -> &Vec<crate::verilog::fault::Fault> {
                 self.$cfg_field.cfg_equivalent_check()
             }
             fn cfg_ff_definitions(&self) -> &Vec<crate::time_expansion::config::FFDefinition> {
@@ -51,7 +51,7 @@ pub trait ConfiguredTrait {
     fn cfg_top_module(&self) -> &str;
     fn cfg_clock_pins(&self) -> &Vec<String>;
     fn cfg_use_primary_io(&self) -> bool;
-    fn cfg_equivalent_check(&self) -> &Fault;
+    fn cfg_equivalent_check(&self) -> &Vec<Fault>;
     fn cfg_ff_definitions(&self) -> &Vec<FFDefinition>;
     fn cfg_inv_definition(&self) -> &InvDefinition;
 }
@@ -66,7 +66,7 @@ pub struct ExpansionConfig {
     clock_pins: Vec<String>,
 
     use_primary_io: bool,
-    equivalent_check: Fault,
+    equivalent_check: Vec<Fault>,
     ff_definitions: Vec<FFDefinition>,
     inv_definition: InvDefinition,
 }
@@ -90,7 +90,7 @@ impl ConfiguredTrait for ExpansionConfig {
     fn cfg_use_primary_io(&self) -> bool {
         self.use_primary_io()
     }
-    fn cfg_equivalent_check(&self) -> &Fault {
+    fn cfg_equivalent_check(&self) -> &Vec<Fault> {
         self.equivalent_check()
     }
     fn cfg_ff_definitions(&self) -> &Vec<FFDefinition> {
@@ -119,6 +119,7 @@ impl ExpansionConfig {
         let top_module_regex = Regex::new(r"\s*top-module\s+(\S+)\s*").unwrap();
         let clock_pins_regex = Regex::new(r"\s*clock-pins\s+(.+)\s*").unwrap();
         let use_primary_io_regex = Regex::new(r"\s*use-primary-io\s+(.+)\s*").unwrap();
+        let multi_ec_regex = Regex::new(r"\s*equivalent-check\s*\{.*").unwrap();
         let equivalent_check_regex = Regex::new(r"\s*equivalent-check\s+(.+)\s*").unwrap();
         let ff_definitions_regex = Regex::new(r"\s*ff\s+([^{]+)\s*\{.*").unwrap();
         let inv_definitions_regex = Regex::new(r"\s*inv\s+([^{]+)\s*\{.*").unwrap();
@@ -142,13 +143,23 @@ impl ExpansionConfig {
                     .for_each(|pin| self.clock_pins.push(pin.trim().to_string()));
             } else if let Some(cap) = use_primary_io_regex.captures(line) {
                 self.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
+            } else if let Some(cap) = multi_ec_regex.captures(line) {
+                let fault_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
+                while let Some(fault_cap) =
+                    fault_regex.captures(line_iter.next().unwrap().1.as_str())
+                {
+                    self.equivalent_check.push(Fault::new(
+                        fault_cap.get(3).unwrap().as_str().to_string(),
+                        fault_cap.get(1).unwrap().as_str().eq("stf"),
+                    ))
+                }
             } else if let Some(cap) = equivalent_check_regex.captures(line) {
-                let ec_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
-                if let Some(ec_cap) = ec_regex.captures(cap.get(1).unwrap().as_str()) {
-                    self.equivalent_check = Fault::new(
-                        ec_cap.get(3).unwrap().as_str().to_string(),
-                        ec_cap.get(1).unwrap().as_str().eq("stf"),
-                    )
+                let fault_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
+                if let Some(fault_cap) = fault_regex.captures(cap.get(1).unwrap().as_str()) {
+                    self.equivalent_check.push(Fault::new(
+                        fault_cap.get(3).unwrap().as_str().to_string(),
+                        fault_cap.get(1).unwrap().as_str().eq("stf"),
+                    ))
                 } else {
                     return Err(format!(
                         "Error: Equivalent check fault syntax Error at line {}",
@@ -180,7 +191,12 @@ impl ExpansionConfig {
         if self.clock_pins.is_empty() {
             eprintln!("Warning: clock-pins option is blank. (Asynchronous circuit?)");
         }
-        if self.expand_method.is_none() && self.equivalent_check.location().is_empty() {
+        if self.expand_method.is_none()
+            && self
+                .equivalent_check
+                .iter()
+                .any(|f| f.location().is_empty())
+        {
             Err("Error: expand-method option must be specified in the configuration file.")
         } else if self.input_file.is_empty() {
             Err("Error: input-file option must be specified in the configuration file.")
@@ -225,7 +241,7 @@ impl ExpansionConfig {
     pub fn use_primary_io(&self) -> bool {
         self.use_primary_io
     }
-    pub fn equivalent_check(&self) -> &Fault {
+    pub fn equivalent_check(&self) -> &Vec<Fault> {
         &self.equivalent_check
     }
     pub fn ff_definitions(&self) -> &Vec<FFDefinition> {
@@ -413,8 +429,8 @@ mod test {
     use crate::verilog::fault::Fault;
 
     #[test]
-    fn expansion_config() {
-        let ec = ExpansionConfig::from_file("expansion.conf").unwrap();
+    fn expansion_config() -> Result<(), String> {
+        let ec = ExpansionConfig::from_file("expansion.conf")?;
         assert_eq!(ec.expand_method, Some(Broadside));
         assert_eq!(ec.input_file, "b01_net.v");
         assert_eq!(ec.output_file, "b01_bs_net.v");
@@ -422,7 +438,10 @@ mod test {
         assert_eq!(ec.clock_pins, vec!["clock", "reset"]);
         assert_eq!(
             ec.equivalent_check,
-            Fault::new(String::from("FLAG_reg/Q"), false)
+            vec![
+                Fault::new(String::from("FLAG_reg/Q"), false),
+                Fault::new(String::from("FLAG_reg/Q"), true),
+            ]
         );
         assert!(!ec.use_primary_io);
         assert_eq!(
@@ -466,6 +485,7 @@ mod test {
                 input: String::from("A"),
                 output: String::from("Z")
             }
-        )
+        );
+        Ok(())
     }
 }

@@ -145,7 +145,7 @@ impl Module {
         self.inputs.iter().chain(&self.outputs).collect()
     }
     // TODO: does Module have this responsibility?
-    pub fn add_observation_point(&mut self, signal: &String) -> Result<String, ModuleError> {
+    pub fn add_observation_point(&mut self, signal: &str) -> Result<String, ModuleError> {
         let signal = signal.split("/").collect::<Vec<_>>();
         if signal.len() == 1 {
             let primary_io = signal[0];
