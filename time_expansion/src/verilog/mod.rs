@@ -116,7 +116,7 @@ impl Module {
     pub fn push_assign(&mut self, assign: String) {
         self.assigns.push(assign);
     }
-    pub fn remove_assigns_by_assign(&mut self, assign: &String) -> Option<String> {
+    pub fn remove_assign(&mut self, assign: &String) -> Option<String> {
         if let Some(i) = self.assigns.iter().position(|s| s.eq(assign)) {
             Some(self.assigns.remove(i))
         } else {
@@ -145,7 +145,7 @@ impl Module {
         self.inputs.iter().chain(&self.outputs).collect()
     }
     // TODO: does Module have this responsibility?
-    pub fn add_observation_point(&mut self, signal: &String) -> Result<String, ModuleError> {
+    pub fn add_observation_point(&mut self, signal: &str) -> Result<String, ModuleError> {
         let signal = signal.split("/").collect::<Vec<_>>();
         if signal.len() == 1 {
             let primary_io = signal[0];
