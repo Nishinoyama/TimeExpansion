@@ -15,4 +15,11 @@ impl Fault {
     pub fn sa_value(&self) -> bool {
         self.sa_value
     }
+    pub fn slow_to(&self) -> &'static str {
+        if self.sa_value {
+            "stf"
+        } else {
+            "str"
+        }
+    }
 }

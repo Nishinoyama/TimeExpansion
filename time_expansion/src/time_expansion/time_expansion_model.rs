@@ -245,7 +245,9 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
 
         // gen observable wire in c1 for restriction
         let mut c1_module = bs_model.c1_module().clone();
-        let observable_wire = c1_module.add_observation_point(fault.location()).unwrap();
+        let observable_wire = c1_module
+            .add_observation_point(fault.location(), fault.sa_value())
+            .unwrap();
 
         // take restriction wire from c1
         let mut top_module = bs_model.top_module().clone();

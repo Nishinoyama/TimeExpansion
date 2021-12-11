@@ -123,6 +123,9 @@ impl Module {
             None
         }
     }
+    pub fn gate_by_name(&self, ident: &str) -> Option<&Gate> {
+        self.gates.get(ident)
+    }
     pub fn push_gate(&mut self, ident: String, gate: Gate) {
         self.gates.insert(ident, gate);
     }
@@ -145,11 +148,16 @@ impl Module {
         self.inputs.iter().chain(&self.outputs).collect()
     }
     // TODO: does Module have this responsibility?
-    pub fn add_observation_point(&mut self, signal: &str) -> Result<String, ModuleError> {
+    pub fn add_observation_point(
+        &mut self,
+        signal: &str,
+        sa_value: bool,
+    ) -> Result<String, ModuleError> {
         let signal = signal.split("/").collect::<Vec<_>>();
+        let slow_to = if sa_value { "stf" } else { "str" };
         if signal.len() == 1 {
             let primary_io = signal[0];
-            let observable_wire = format!("{}_tp", primary_io);
+            let observable_wire = format!("{}_tp_{}", primary_io, slow_to);
             self.push_assign(format!("{} = {}", observable_wire, primary_io));
             self.push_output(Wire::new_single(observable_wire.clone()));
             Ok(observable_wire)
@@ -159,7 +167,7 @@ impl Module {
             if let Some(gate) = self.gates().get(gate_name).cloned() {
                 let port_wire = gate.port_by_name(&port.to_string()).unwrap();
                 let wire = port_wire.wire();
-                let observable_wire = format!("{}_{}_tp", signal.join("_"), wire);
+                let observable_wire = format!("{}_tp_{}", signal.join("_"), slow_to);
                 self.push_assign(format!("{} = {}", observable_wire, wire));
                 self.push_output(Wire::new_single(observable_wire.clone()));
                 Ok(observable_wire)
@@ -542,9 +550,9 @@ mod test {
         let mut verilog = Verilog::from_file("b02_net.v")?;
         let mut module = verilog.take_module_buy_name(&String::from("b02")).unwrap();
         eprintln!("{}", module.gen());
-        module.add_observation_point(&String::from("U24/A"))?;
+        module.add_observation_point(&String::from("U24/A"), false)?;
         eprintln!("{}", module.gen());
-        module.add_observation_point(&String::from("u"))?;
+        module.add_observation_point(&String::from("u"), true)?;
         eprintln!("{}", module.gen());
         Ok(())
     }
