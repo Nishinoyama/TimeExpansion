@@ -1,8 +1,6 @@
 use crate::gen_configured_trait;
 use crate::time_expansion::config::ConfiguredTrait;
-use crate::time_expansion::config::ExpansionMethod::Broadside;
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
-use crate::verilog::fault::Fault;
 use crate::verilog::{Gate, Module, PortWire, Verilog, Wire};
 use std::collections::HashSet;
 

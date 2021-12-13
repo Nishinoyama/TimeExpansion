@@ -143,7 +143,7 @@ impl ExpansionConfig {
                     .for_each(|pin| self.clock_pins.push(pin.trim().to_string()));
             } else if let Some(cap) = use_primary_io_regex.captures(line) {
                 self.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
-            } else if let Some(cap) = multi_ec_regex.captures(line) {
+            } else if let Some(_cap) = multi_ec_regex.captures(line) {
                 let fault_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
                 while let Some(fault_cap) =
                     fault_regex.captures(line_iter.next().unwrap().1.as_str())

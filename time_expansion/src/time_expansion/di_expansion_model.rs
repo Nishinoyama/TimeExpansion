@@ -2,10 +2,9 @@ use crate::gen_configured_trait;
 use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::time_expansion_model::{BroadSideExpansionModel, TimeExpansionModel};
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
-use crate::verilog::fault::Fault;
+use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, PortWire, Verilog, Wire};
 use std::collections::HashSet;
-use std::fmt::format;
 
 #[derive(Debug, Clone)]
 pub struct DiExpansionModel {
@@ -267,6 +266,11 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
             de_model,
             atpg_model,
         }
+    }
+}
+impl NetlistSerializer for DiExpansionATPGModel {
+    fn gen(&self) -> String {
+        self.atpg_model.gen()
     }
 }
 
