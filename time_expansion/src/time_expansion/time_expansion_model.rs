@@ -2,7 +2,7 @@ use crate::gen_configured_trait;
 use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
 use crate::verilog::{Gate, Module, PortWire, Verilog, Wire};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 pub trait TimeExpansionModel: ConfiguredTrait {
     fn c1_suffix() -> &'static str {
@@ -29,8 +29,8 @@ pub trait TimeExpansionModel: ConfiguredTrait {
 
     fn c1_module(&self) -> &Module;
     fn c2_module(&self) -> &Module;
-    fn top_inputs(&self) -> &HashSet<Wire>;
-    fn top_outputs(&self) -> &HashSet<Wire>;
+    fn top_inputs(&self) -> &BTreeSet<Wire>;
+    fn top_outputs(&self) -> &BTreeSet<Wire>;
 }
 
 pub trait EquivalentCheckModel {
@@ -70,10 +70,10 @@ impl TimeExpansionModel for BroadSideExpansionModel {
             .module_by_name(self.c2_name().as_str())
             .unwrap()
     }
-    fn top_inputs(&self) -> &HashSet<Wire> {
+    fn top_inputs(&self) -> &BTreeSet<Wire> {
         self.top_module().inputs()
     }
-    fn top_outputs(&self) -> &HashSet<Wire> {
+    fn top_outputs(&self) -> &BTreeSet<Wire> {
         self.top_module().outputs()
     }
 }
@@ -205,7 +205,7 @@ impl BroadSideExpansionATPGModel {
             .unwrap();
         let c2_imp = c2_ref
             .insert_stuck_at_fault(
-                format!("{}_imp", self.c2_module().name()),
+                format!("{}_imp", self.c2_module().name()).as_str(),
                 &self.cfg_equivalent_check().first().unwrap(),
             )
             .ok()
@@ -227,10 +227,10 @@ impl TimeExpansionModel for BroadSideExpansionATPGModel {
     fn c2_module(&self) -> &Module {
         self.bs_model.c2_module()
     }
-    fn top_inputs(&self) -> &HashSet<Wire> {
+    fn top_inputs(&self) -> &BTreeSet<Wire> {
         self.bs_model.top_inputs()
     }
-    fn top_outputs(&self) -> &HashSet<Wire> {
+    fn top_outputs(&self) -> &BTreeSet<Wire> {
         self.bs_model.top_outputs()
     }
 }

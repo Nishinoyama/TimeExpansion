@@ -7,7 +7,7 @@ use crate::verilog::ast::token::Lexer;
 use crate::verilog::fault::Fault;
 use crate::verilog::netlist_serializer::NetlistSerializer;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -71,9 +71,9 @@ impl NetlistSerializer for Verilog {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Module {
     name: String,
-    inputs: HashSet<Wire>,
-    outputs: HashSet<Wire>,
-    wires: HashSet<Wire>,
+    inputs: BTreeSet<Wire>,
+    outputs: BTreeSet<Wire>,
+    wires: BTreeSet<Wire>,
     assigns: Vec<String>,
     gates: BTreeMap<String, Gate>,
 }
@@ -135,10 +135,10 @@ impl Module {
     pub fn remove_gate(&mut self, ident: &str) -> Option<Gate> {
         self.gates.remove(ident)
     }
-    pub fn inputs(&self) -> &HashSet<Wire> {
+    pub fn inputs(&self) -> &BTreeSet<Wire> {
         &self.inputs
     }
-    pub fn outputs(&self) -> &HashSet<Wire> {
+    pub fn outputs(&self) -> &BTreeSet<Wire> {
         &self.outputs
     }
     pub fn gates(&self) -> &BTreeMap<String, Gate> {
@@ -187,11 +187,11 @@ impl Module {
     // TODO: does Module have this responsibility?
     pub fn insert_stuck_at_fault(
         &self,
-        new_module_name: String,
+        new_module_name: &str,
         fault: &Fault,
     ) -> Result<Self, ModuleError> {
         let mut faulty_module = self.clone();
-        faulty_module.name = new_module_name;
+        faulty_module.name = new_module_name.to_string();
         let sa_value = format!("1'b{}", if fault.sa_value() { 1 } else { 0 });
         let stuck_signal = fault.location().split("/").collect::<Vec<_>>();
         if stuck_signal.len() == 1 {
@@ -266,8 +266,8 @@ impl Module {
         }
         gate
     }
-    fn wires_by_signal_range(wires: &HashSet<Wire>) -> HashMap<SignalRange, Vec<String>> {
-        let mut signal_range_wires: HashMap<SignalRange, Vec<String>> = HashMap::new();
+    fn wires_by_signal_range(wires: &BTreeSet<Wire>) -> BTreeMap<SignalRange, Vec<String>> {
+        let mut signal_range_wires: BTreeMap<SignalRange, Vec<String>> = BTreeMap::new();
         for wire in wires {
             let ident = wire.name();
             let range = wire.range();
@@ -368,7 +368,7 @@ impl Ord for SignalRange {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Wire {
     range: SignalRange,
     name: String,
@@ -522,25 +522,17 @@ mod test {
         let verilog = Verilog::from_file("b02_net.v")?;
         let module = verilog.modules.get(0).unwrap();
         eprintln!("{}", module.gen());
-        let fmodule = module.insert_stuck_at_fault(
-            String::from("b02_ft"),
-            &Fault::new(String::from("U19/A"), false),
-        )?;
+        let fmodule =
+            module.insert_stuck_at_fault("b02_ft", &Fault::new(String::from("U19/A"), false))?;
         eprintln!("{}", fmodule.gen());
-        let fmodule = module.insert_stuck_at_fault(
-            String::from("b02_ft"),
-            &Fault::new(String::from("U19/Z"), false),
-        )?;
+        let fmodule =
+            module.insert_stuck_at_fault("b02_ft", &Fault::new(String::from("U19/Z"), false))?;
         eprintln!("{}", fmodule.gen());
-        let fmodule = module.insert_stuck_at_fault(
-            String::from("b02_ft"),
-            &Fault::new(String::from("linea"), false),
-        )?;
+        let fmodule =
+            module.insert_stuck_at_fault("b02_ft", &Fault::new(String::from("linea"), false))?;
         eprintln!("{}", fmodule.gen());
-        let fmodule = module.insert_stuck_at_fault(
-            String::from("b02_ft"),
-            &Fault::new(String::from("u"), false),
-        )?;
+        let fmodule =
+            module.insert_stuck_at_fault("b02_ft", &Fault::new(String::from("u"), false))?;
         eprintln!("{}", fmodule.gen());
         Ok(())
     }

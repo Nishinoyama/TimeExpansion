@@ -3,8 +3,8 @@ use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::time_expansion_model::{BroadSideExpansionModel, TimeExpansionModel};
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
 use crate::verilog::netlist_serializer::NetlistSerializer;
-use crate::verilog::{Gate, Module, PortWire, Verilog, Wire};
-use std::collections::HashSet;
+use crate::verilog::{Gate, Module, ModuleError, PortWire, Verilog, Wire};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone)]
 pub struct DiExpansionModel {
@@ -52,10 +52,10 @@ impl TimeExpansionModel for DiExpansionModel {
             .module_by_name(self.c2_name().as_str())
             .unwrap()
     }
-    fn top_inputs(&self) -> &HashSet<Wire> {
+    fn top_inputs(&self) -> &BTreeSet<Wire> {
         self.top_module().inputs()
     }
-    fn top_outputs(&self) -> &HashSet<Wire> {
+    fn top_outputs(&self) -> &BTreeSet<Wire> {
         self.top_module().outputs()
     }
 }
@@ -173,42 +173,22 @@ impl DiExpansionATPGModel {
             .module_by_name(self.c3_name().as_str())
             .unwrap()
     }
-    fn equivalent_check(&self) -> Result<Verilog, String> {
-        let mut atpg_model = self.atpg_model.clone();
-        let bs_top_name = self.top_name();
+    fn equivalent_check(&self) -> Result<(Verilog, Verilog), ModuleError> {
+        let mut faulty_model = self.atpg_model.clone();
 
         // build bs_ref and bs_imp
         // replace bs_imp's c2 gate with c2_imp
-        let bs_ref = atpg_model.module_by_name_mut(&bs_top_name).unwrap();
-        *bs_ref.name_mut() = format!("{}_ref", bs_top_name);
-
-        let mut bs_imp = bs_ref.clone();
-        *bs_imp.name_mut() = format!("{}_imp", bs_top_name);
-        *bs_imp
-            .gate_mut_by_name(&String::from("c2"))
-            .unwrap()
-            .name_mut() = format!("{}_imp", self.c2_name());
-        *bs_imp
-            .gate_mut_by_name(&String::from("c3"))
-            .unwrap()
-            .name_mut() = format!("{}_imp", self.c3_name());
-        atpg_model.push_module(bs_imp);
-
-        atpg_model.push_module(self.c2_module().clone_with_name_prefix("_imp"));
-        atpg_model.push_module(self.c3_module().clone_with_name_prefix("_imp"));
-
         for fault in self.cfg_equivalent_check() {
             let c_name = if fault.sa_value() {
                 self.c3_name()
             } else {
                 self.c2_name()
             };
-            let imp_c_name = format!("{}_imp", c_name);
-            let c_imp = atpg_model.module_by_name_mut(imp_c_name.as_str()).unwrap();
-            *c_imp = c_imp.insert_stuck_at_fault(imp_c_name, fault).unwrap();
+            let c_imp = faulty_model.module_by_name_mut(c_name.as_str()).unwrap();
+            *c_imp = c_imp.insert_stuck_at_fault(c_name.as_str(), fault)?;
         }
 
-        Ok(atpg_model)
+        Ok((self.atpg_model.clone(), faulty_model))
     }
 }
 impl TopModule for DiExpansionATPGModel {
@@ -223,10 +203,10 @@ impl TimeExpansionModel for DiExpansionATPGModel {
     fn c2_module(&self) -> &Module {
         self.de_model.c2_module()
     }
-    fn top_inputs(&self) -> &HashSet<Wire> {
+    fn top_inputs(&self) -> &BTreeSet<Wire> {
         self.de_model.top_inputs()
     }
-    fn top_outputs(&self) -> &HashSet<Wire> {
+    fn top_outputs(&self) -> &BTreeSet<Wire> {
         self.de_model.top_outputs()
     }
 }
@@ -366,11 +346,8 @@ mod test {
     #[test]
     fn di_expansion_equivalent_check() -> std::io::Result<()> {
         let dam = DiExpansionATPGModel::from(test_di_expansion_model());
-        eprintln!("{}", dam.equivalent_check().unwrap().gen());
-        // writer(
-        //     File::create("b01_ec.v")?,
-        //     dam.equivalent_check().unwrap().gen().as_bytes(),
-        // )
-        Ok(())
+        let (ref_v, imp_v) = dam.equivalent_check().unwrap();
+        writer(File::create("b01_de_ref.v")?, ref_v.gen().as_bytes())?;
+        writer(File::create("b01_de_imp.v")?, imp_v.gen().as_bytes())
     }
 }
