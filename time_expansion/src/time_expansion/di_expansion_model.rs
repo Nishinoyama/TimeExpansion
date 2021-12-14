@@ -173,7 +173,7 @@ impl DiExpansionATPGModel {
             .module_by_name(self.c3_name().as_str())
             .unwrap()
     }
-    fn equivalent_check(&self) -> Result<(Verilog, Verilog), ModuleError> {
+    pub fn equivalent_check(&self) -> Result<(Verilog, Verilog), ModuleError> {
         let mut faulty_model = self.atpg_model.clone();
 
         // build bs_ref and bs_imp

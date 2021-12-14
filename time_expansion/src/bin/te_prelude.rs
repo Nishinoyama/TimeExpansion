@@ -22,10 +22,16 @@ fn main() -> Result<(), String> {
     let dem = DiExpansionATPGModel::from(DiExpansionModel::from(BroadSideExpansionModel::from(
         ExtractedCombinationalPartModel::from(ConfiguredModel::from(cfg)),
     )));
-    eprintln!("writing to {}...", dem.cfg_output_file());
-    let mut write_file = File::create(dem.cfg_output_file()).unwrap();
+    eprintln!("fault injecting ...");
+    let (ref_v, imp_v) = dem.equivalent_check().unwrap();
+    eprintln!("writing to ref.v ...");
+    let mut write_file = File::create("ref.v").unwrap();
     let mut buf_writer = BufWriter::new(write_file);
-    buf_writer.write(dem.gen().as_bytes());
+    buf_writer.write(ref_v.gen().as_bytes());
+    eprintln!("writing to imp.v ...");
+    let mut write_file = File::create("imp.v").unwrap();
+    let mut buf_writer = BufWriter::new(write_file);
+    buf_writer.write(imp_v.gen().as_bytes());
     eprintln!("done!");
     Ok(())
 }
