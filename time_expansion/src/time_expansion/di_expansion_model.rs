@@ -153,9 +153,61 @@ pub struct DiExpansionATPGModel {
     atpg_model: Verilog,
 }
 impl DiExpansionATPGModel {
+    pub fn atpg_model(&self) -> &Verilog {
+        &self.atpg_model
+    }
+    fn sa0_suffix() -> &'static str {
+        "_sa0"
+    }
+    fn sa1_suffix() -> &'static str {
+        "_sa1"
+    }
+    fn c3_suffix() -> &'static str {
+        "_c3"
+    }
+    fn c3_name(&self) -> String {
+        self.combinational_part_name_with_suffix(Self::c3_suffix())
+    }
+    fn c3_module(&self) -> &Module {
+        self.atpg_model()
+            .module_by_name(self.c3_name().as_str())
+            .unwrap()
+    }
     fn equivalent_check(&self) -> Result<Verilog, String> {
         let mut atpg_model = self.atpg_model.clone();
         let bs_top_name = self.top_name();
+
+        // build bs_ref and bs_imp
+        // replace bs_imp's c2 gate with c2_imp
+        let bs_ref = atpg_model.module_by_name_mut(&bs_top_name).unwrap();
+        *bs_ref.name_mut() = format!("{}_ref", bs_top_name);
+
+        let mut bs_imp = bs_ref.clone();
+        *bs_imp.name_mut() = format!("{}_imp", bs_top_name);
+        *bs_imp
+            .gate_mut_by_name(&String::from("c2"))
+            .unwrap()
+            .name_mut() = format!("{}_imp", self.c2_name());
+        *bs_imp
+            .gate_mut_by_name(&String::from("c3"))
+            .unwrap()
+            .name_mut() = format!("{}_imp", self.c3_name());
+        atpg_model.push_module(bs_imp);
+
+        atpg_model.push_module(self.c2_module().clone_with_name_prefix("_imp"));
+        atpg_model.push_module(self.c3_module().clone_with_name_prefix("_imp"));
+
+        for fault in self.cfg_equivalent_check() {
+            let c_name = if fault.sa_value() {
+                self.c3_name()
+            } else {
+                self.c2_name()
+            };
+            let imp_c_name = format!("{}_imp", c_name);
+            let c_imp = atpg_model.module_by_name_mut(imp_c_name.as_str()).unwrap();
+            *c_imp = c_imp.insert_stuck_at_fault(imp_c_name, fault).unwrap();
+        }
+
         Ok(atpg_model)
     }
 }
@@ -282,7 +334,7 @@ mod test {
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
     use crate::verilog::netlist_serializer::NetlistSerializer;
     use std::fs::File;
-    use std::io::Write;
+    use std::io::{BufWriter, Write};
 
     fn test_configured_model() -> ConfiguredModel {
         ConfiguredModel::from(ExpansionConfig::from_file("expansion_example.conf").unwrap())
@@ -292,18 +344,33 @@ mod test {
             ExtractedCombinationalPartModel::from(test_configured_model()),
         ))
     }
+    fn write_file<T: ConfiguredTrait>(model: &T, bytes: &[u8]) -> std::io::Result<()> {
+        let mut file = File::create(model.cfg_output_file())?;
+        writer(file, bytes)
+    }
+    fn writer(mut file: File, bytes: &[u8]) -> std::io::Result<()> {
+        let mut writer = BufWriter::new(file);
+        writer.write(bytes)?;
+        Ok(())
+    }
     #[test]
     fn di_expansion_model() -> std::io::Result<()> {
         let bsd = test_di_expansion_model();
-        let mut file = File::create(bsd.cfg_output_file())?;
-        file.write(bsd.expanded_model().gen().as_bytes())?;
-        Ok(())
+        write_file(&bsd, bsd.expanded_model().gen().as_bytes())
     }
     #[test]
     fn di_expansion_atpg_model() -> std::io::Result<()> {
         let dam = DiExpansionATPGModel::from(test_di_expansion_model());
-        let mut file = File::create(dam.cfg_output_file())?;
-        file.write(dam.atpg_model.gen().as_bytes())?;
+        write_file(&dam, dam.atpg_model().gen().as_bytes())
+    }
+    #[test]
+    fn di_expansion_equivalent_check() -> std::io::Result<()> {
+        let dam = DiExpansionATPGModel::from(test_di_expansion_model());
+        eprintln!("{}", dam.equivalent_check().unwrap().gen());
+        // writer(
+        //     File::create("b01_ec.v")?,
+        //     dam.equivalent_check().unwrap().gen().as_bytes(),
+        // )
         Ok(())
     }
 }
