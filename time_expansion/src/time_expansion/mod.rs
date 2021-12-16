@@ -1,6 +1,5 @@
 use crate::gen_configured_trait;
 use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig, FFDefinition};
-use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, Verilog, Wire};
 
 pub mod config;

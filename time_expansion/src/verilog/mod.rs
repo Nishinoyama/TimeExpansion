@@ -141,6 +141,9 @@ impl Module {
     pub fn outputs(&self) -> &BTreeSet<Wire> {
         &self.outputs
     }
+    pub fn wires(&self) -> &BTreeSet<Wire> {
+        &self.wires
+    }
     pub fn gates(&self) -> &BTreeMap<String, Gate> {
         &self.gates
     }
@@ -229,7 +232,11 @@ impl Module {
             // lower level gate port stuck fault
             let stuck_gate_ident = stuck_signal[0].to_string();
             let stuck_port_name = stuck_signal[1].to_string();
-            let mut stuck_gate = faulty_module.gates.get(&stuck_gate_ident).unwrap().clone();
+            let mut stuck_gate = faulty_module
+                .gates()
+                .get(&stuck_gate_ident)
+                .unwrap()
+                .clone();
             let port_wire = stuck_gate.port_by_name_mut(&stuck_port_name).unwrap();
             let wire = port_wire.wire_mut();
             // TODO: Remove "Z" or "Y" Magic which means output port!
@@ -291,18 +298,18 @@ impl NetlistSerializer for Module {
     fn gen(&self) -> String {
         let mut module = format!(
             "module {ident} ( {pins} );\n",
-            ident = self.name,
+            ident = self.name(),
             pins = self
                 .pins()
                 .into_iter()
-                .map(|pin| pin.name.clone())
+                .map(|pin| pin.name().clone())
                 .collect::<Vec<_>>()
                 .join(", "),
         );
         let wires = vec![
-            (&self.inputs, "input"),
-            (&self.outputs, "output"),
-            (&self.wires, "wire"),
+            (self.inputs(), "input"),
+            (self.outputs(), "output"),
+            (self.wires(), "wire"),
         ];
         for (wires, wire_type) in wires {
             for (r, s) in Self::wires_by_signal_range(&wires) {
@@ -314,14 +321,14 @@ impl NetlistSerializer for Module {
                 )
             }
         }
-        for assign in &self.assigns {
+        for assign in self.assigns() {
             module += &format!("  assign {};\n", assign);
         }
         module += "\n";
-        for (ident, gate) in &self.gates {
+        for (ident, gate) in self.gates() {
             module += &format!(
                 "  {gate_name} {ident} {gate};\n",
-                gate_name = gate.name,
+                gate_name = gate.name(),
                 ident = ident,
                 gate = gate.gen()
             )

@@ -105,7 +105,7 @@ impl ExpansionConfig {
     fn read_file(&self, file_name: &str) -> std::io::Result<Vec<String>> {
         let config_file = File::open(file_name)?;
         let config_buf_reader = BufReader::new(config_file);
-        let mut lines = config_buf_reader
+        let lines = config_buf_reader
             .lines()
             .map(|line| line.unwrap().split("#").next().unwrap().to_string())
             .collect();

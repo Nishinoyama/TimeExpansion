@@ -4,7 +4,6 @@ use crate::verilog::{Gate, Module, PortWire, SignalRange, Verilog, Wire};
 #[derive(Clone, Debug)]
 pub struct Parser {
     tokens: Vec<Token>,
-    index: usize,
 }
 
 impl Parser {
@@ -12,7 +11,6 @@ impl Parser {
     pub fn from_tokens(tokens: Vec<Token>) -> Self {
         Self {
             tokens: tokens.into_iter().rev().collect(),
-            index: 0,
         }
     }
     fn consume_token_if_eq(&mut self, expected_token: Token) -> Result<Option<Token>, ParseError> {
