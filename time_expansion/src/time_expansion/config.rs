@@ -1,6 +1,6 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
 use crate::verilog::fault::Fault;
-use crate::verilog::{Gate, PortWire, Verilog};
+use crate::verilog::{Gate, ModuleError, PortWire, Verilog};
 use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
@@ -105,14 +105,13 @@ impl ExpansionConfig {
     fn read_file(&self, file_name: &str) -> std::io::Result<Vec<String>> {
         let config_file = File::open(file_name)?;
         let config_buf_reader = BufReader::new(config_file);
-        let mut lines = Vec::new();
-        for line in config_buf_reader.lines() {
-            let line = line.unwrap().split("#").next().unwrap().to_string();
-            lines.push(line);
-        }
+        let mut lines = config_buf_reader
+            .lines()
+            .map(|line| line.unwrap().split("#").next().unwrap().to_string())
+            .collect();
         Ok(lines)
     }
-    fn parse_lines(&mut self, lines: Vec<String>) -> Result<(), String> {
+    fn parse_lines(&mut self, lines: Vec<String>) -> Result<(), ExpansionConfigError> {
         let expansion_method_regex = Regex::new(r"\s*expansion-method\s+(\S+)\s*").unwrap();
         let input_verilog_regex = Regex::new(r"\s*input-verilog\s+(\S+)\s*").unwrap();
         let output_verilog_regex = Regex::new(r"\s*output-verilog\s+(\S+)\s*").unwrap();
@@ -161,61 +160,61 @@ impl ExpansionConfig {
                         fault_cap.get(1).unwrap().as_str().eq("stf"),
                     ))
                 } else {
-                    return Err(format!(
+                    return Err(ExpansionConfigError::ConfigSyntaxError(format!(
                         "Error: Equivalent check fault syntax Error at line {}",
                         i + 1
-                    ));
+                    )));
                 }
             } else if let Some(cap) = ff_definitions_regex.captures(line) {
-                let mut ff_define = FFDefinition::from_file_iter(&mut line_iter);
+                let mut ff_define = FFDefinition::from_file_iter(&mut line_iter)?;
                 *ff_define.name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
                 self.ff_definitions.push(ff_define);
             } else if let Some(cap) = inv_definitions_regex.captures(line) {
-                let mut inv_define = InvDefinition::from_file_iter(&mut line_iter);
+                let mut inv_define = InvDefinition::from_file_iter(&mut line_iter)?;
                 *inv_define.name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
                 self.inv_definition = inv_define;
             } else if empty_line_regex.is_match(line) {
             } else {
-                eprintln!("Error: Undefined Option");
-                eprintln!("Syntax error at line {}", i + 1);
-                eprintln!("{}", line);
-                return Err(format!(
-                    "Error: Undefined Option.\nSyntax Error at line {}",
+                // eprintln!("Error: Undefined Option");
+                // eprintln!("Syntax error at line {}", i + 1);
+                // eprintln!("{}", line);
+                return Err(ExpansionConfigError::ConfigSyntaxError(format!(
+                    "Error: Undefined Option. Syntax Error at line {}",
                     i + 1
-                ));
+                )));
             }
         }
         Ok(())
     }
-    fn verification(&self) -> Result<(), &'static str> {
+    fn verification(&self) -> Result<(), ExpansionConfigVerificationError> {
+        use ExpansionConfigVerificationError::*;
         if self.clock_pins.is_empty() {
             eprintln!("Warning: clock-pins option is blank. (Asynchronous circuit?)");
         }
-        if self.expand_method.is_none()
+        if self.expand_method().is_none()
             && self
-                .equivalent_check
+                .equivalent_check()
                 .iter()
                 .any(|f| f.location().is_empty())
         {
-            Err("Error: expand-method option must be specified in the configuration file.")
-        } else if self.input_file.is_empty() {
-            Err("Error: input-file option must be specified in the configuration file.")
-        } else if self.output_file.is_empty() {
-            Err("Error: output-file option must be specified in the configuration file.")
-        } else if self.ff_definitions.is_empty() {
-            Err("Error: ff option must be specified at least 1 in the configuration file.")
-        } else if self.inv_definition.is_empty() {
-            Err(concat!(
-                "Error: inv option must be specified in the configuration file\n",
-                "       or cannot analyze the following NOT gate type specified in inv option."
-            ))
+            Err(UnspecifiedExpansionMethod)
+        } else if self.input_file().is_empty() {
+            Err(NoInputFile)
+        } else if self.output_file().is_empty() {
+            Err(NoOutputFile)
+        } else if self.top_module().is_empty() {
+            Err(UnspecifiedTopModule)
+        } else if self.ff_definitions().is_empty() {
+            Err(UnspecifiedFFGate)
+        } else if self.inv_definition().is_empty() {
+            Err(UnspecifiedInvGate)
         } else {
             Ok(())
         }
     }
     /// Generate config from file specifying config.
     /// [`Err`]\([`String`]) if file cannot compiled or is wrong.
-    pub fn from_file(file_name: &str) -> Result<Self, String> {
+    pub fn from_file(file_name: &str) -> Result<Self, ExpansionConfigError> {
         let mut config = Self::default();
         let lines = config.read_file(file_name).unwrap();
         config.parse_lines(lines)?;
@@ -306,7 +305,9 @@ pub struct FFDefinition {
 }
 
 impl FFDefinition {
-    pub fn from_file_iter(line_iter: &mut Enumerate<Iter<String>>) -> Self {
+    pub fn from_file_iter(
+        line_iter: &mut Enumerate<Iter<String>>,
+    ) -> Result<Self, FFDefinitionError> {
         let mut ff_defines = Self::default();
         let data_in_regex = Regex::new(r"\s*data-in\s+(.+)\s*").unwrap();
         let data_out_regex = Regex::new(r"\s*data-out\s+(.+)\s*").unwrap();
@@ -337,13 +338,13 @@ impl FFDefinition {
                     .for_each(|data| ff_defines.control.push(data.trim().to_string()));
             } else if empty_line_regex.is_match(ff_line) {
             } else {
-                eprintln!("Error: Undefined FF Option");
-                eprintln!("Syntax error at line {}", i + 1);
-                eprintln!("{}", ff_line);
-                panic!("Syntax Error at line {}", i + 1);
+                return Err(FFDefinitionError::UndefinedOption(format!(
+                    "Syntax Error at line {}",
+                    i + 1
+                )));
             }
         }
-        return ff_defines;
+        Ok(ff_defines)
     }
     pub fn data_in(&self) -> &Vec<String> {
         &self.data_in
@@ -362,6 +363,11 @@ impl FFDefinition {
     }
 }
 
+#[derive(Debug)]
+pub enum FFDefinitionError {
+    UndefinedOption(String),
+}
+
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct InvDefinition {
     name: String,
@@ -370,7 +376,9 @@ pub struct InvDefinition {
 }
 
 impl InvDefinition {
-    pub fn from_file_iter(line_iter: &mut Enumerate<Iter<String>>) -> Self {
+    pub fn from_file_iter(
+        line_iter: &mut Enumerate<Iter<String>>,
+    ) -> Result<Self, InvDefinitionError> {
         let mut inv_defines = Self::default();
         let input_regex = Regex::new(r"\s*input\s+(\w+)\s*").unwrap();
         let output_regex = Regex::new(r"\s*output\s+(\w+)\s*").unwrap();
@@ -386,13 +394,13 @@ impl InvDefinition {
                 inv_defines.output = cap.get(1).unwrap().as_str().trim().to_string();
             } else if empty_line_regex.is_match(inv_line) {
             } else {
-                eprintln!("Error: Undefined Inv Option");
-                eprintln!("Syntax error at line {}", i + 1);
-                eprintln!("{}", inv_line);
-                panic!("Syntax Error at line {}", i + 1);
+                return Err(InvDefinitionError::UndefinedOption(format!(
+                    "Syntax Error at line {}",
+                    i + 1
+                )));
             }
         }
-        return inv_defines;
+        Ok(inv_defines)
     }
 
     pub fn name(&self) -> &str {
@@ -422,14 +430,79 @@ impl InvDefinition {
     }
 }
 
+#[derive(Debug)]
+pub enum InvDefinitionError {
+    UndefinedOption(String),
+}
+
+#[derive(Debug)]
+pub enum ExpansionConfigError {
+    ConfigSyntaxError(String),
+    ConfigVerificationError(ExpansionConfigVerificationError),
+    FFDefinitionError(FFDefinitionError),
+    InvDefinitionError(InvDefinitionError),
+    ModuleError(ModuleError),
+    IOError(std::io::Error),
+}
+
+impl From<std::io::Error> for ExpansionConfigError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IOError(e)
+    }
+}
+
+impl From<ModuleError> for ExpansionConfigError {
+    fn from(e: ModuleError) -> Self {
+        Self::ModuleError(e)
+    }
+}
+
+impl From<FFDefinitionError> for ExpansionConfigError {
+    fn from(e: FFDefinitionError) -> Self {
+        Self::FFDefinitionError(e)
+    }
+}
+
+impl From<InvDefinitionError> for ExpansionConfigError {
+    fn from(e: InvDefinitionError) -> Self {
+        Self::InvDefinitionError(e)
+    }
+}
+
+#[derive(Debug)]
+/// Verification error in the configuration file.
+pub enum ExpansionConfigVerificationError {
+    /// expand-method option must be specified
+    UnspecifiedExpansionMethod,
+    /// input-file option must be specified
+    NoInputFile,
+    /// output-file option must be specified
+    NoOutputFile,
+    /// ff option must be specified at least 1
+    UnspecifiedFFGate,
+    /// inv option must be specified in the configuration file
+    /// or cannot analyze the following NOT gate type specified in inv option."
+    UnspecifiedInvGate,
+    /// top-module name must be specified
+    UnspecifiedTopModule,
+}
+
+impl From<ExpansionConfigVerificationError> for ExpansionConfigError {
+    fn from(e: ExpansionConfigVerificationError) -> Self {
+        Self::ConfigVerificationError(e)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::time_expansion::config::ExpansionMethod::Broadside;
-    use crate::time_expansion::config::{ExpansionConfig, FFDefinition, InvDefinition};
+    use crate::time_expansion::config::{
+        ExpansionConfig, ExpansionConfigError, FFDefinition, InvDefinition,
+    };
     use crate::verilog::fault::Fault;
 
     #[test]
-    fn expansion_config() -> Result<(), String> {
+    fn expansion_config() -> Result<(), ExpansionConfigError> {
         let ec = ExpansionConfig::from_file("expansion.conf")?;
         assert_eq!(ec.expand_method, Some(Broadside));
         assert_eq!(ec.input_file, "b01_net.v");

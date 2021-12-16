@@ -1,6 +1,8 @@
 use crate::gen_configured_trait;
 use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig, FFDefinition};
+use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, Verilog, Wire};
+
 pub mod config;
 pub mod di_expansion_model;
 pub mod time_expansion_model;
@@ -43,41 +45,6 @@ impl ConfiguredModel {
             })
             .collect()
     }
-    //     /// Gen 2 modules for Equivalent-Check at transition fault.
-    //     pub fn equivalent_check_expansion(&self) -> Result<Verilog, String> {
-    //         let mut ec_verilog = self.atpg_model_time_expand().unwrap();
-    //         let bs_top_name = format!("{}_bs", self.cfg().top_module());
-    //
-    //         // build bs_ref and bs_imp
-    //         // replace bs_imp's c2 gate with c2_imp
-    //         let bs_ref = ec_verilog.module_by_name_mut(&bs_top_name).unwrap();
-    //         *bs_ref.name_mut() = format!("{}_ref", bs_top_name);
-    //         let mut bs_imp = bs_ref.clone();
-    //         *bs_imp.name_mut() = format!("{}_imp", bs_top_name);
-    //         *bs_imp
-    //             .gate_mut_by_name(&String::from("c2"))
-    //             .unwrap()
-    //             .name_mut() = format!("{}_cmb_c2_imp", self.cfg().top_module());
-    //         ec_verilog.push_module(bs_imp);
-    //
-    //         // insert stuck-at-fault into c2
-    //         let c2_ref = ec_verilog
-    //             .module_by_name_mut(&format!("{}_cmb_c2", self.cfg().top_module()))
-    //             .unwrap();
-    //         let c2_imp = c2_ref
-    //             .insert_stuck_at_fault(
-    //                 format!("{}_cmb_c2_imp", self.cfg().top_module()),
-    //                 &Fault::new(
-    //                     self.cfg().equivalent_check().1.clone(),
-    //                     self.cfg().equivalent_check().0,
-    //                 ),
-    //             )
-    //             .ok()
-    //             .unwrap();
-    //         ec_verilog.push_module(c2_imp);
-    //
-    //         Ok(ec_verilog)
-    //     }
 }
 gen_configured_trait!(ConfiguredModel, cfg);
 impl TopModule for ConfiguredModel {
@@ -219,7 +186,7 @@ impl From<ConfiguredModel> for ExtractedCombinationalPartModel {
 
 #[cfg(test)]
 mod test {
-    use crate::time_expansion::config::ExpansionConfig;
+    use crate::time_expansion::config::{ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
     use crate::verilog::netlist_serializer::NetlistSerializer;
 
@@ -228,14 +195,9 @@ mod test {
     }
 
     #[test]
-    fn configured_model() -> Result<(), String> {
+    fn configured_model() -> Result<(), ExpansionConfigError> {
         let cm = ConfiguredModel::from(ExpansionConfig::from_file("expansion_example.conf")?);
-        let ec = ExtractedCombinationalPartModel::from(cm);
-        eprintln!("{}", ec.extracted_module.gen());
-        eprintln!("{:?}", ec.primary_inputs);
-        eprintln!("{:?}", ec.primary_outputs);
-        eprintln!("{:?}", ec.pseudo_primary_inputs);
-        eprintln!("{:?}", ec.pseudo_primary_outputs);
+        eprintln!("{}", cm.verilog.gen());
         Ok(())
     }
 
@@ -243,5 +205,9 @@ mod test {
     pub fn extract_combinational_part() {
         let ecpm = ExtractedCombinationalPartModel::from(test_configured_model());
         eprintln!("{}", ecpm.extracted_module.gen());
+        eprintln!("{:?}", ecpm.primary_inputs);
+        eprintln!("{:?}", ecpm.primary_outputs);
+        eprintln!("{:?}", ecpm.pseudo_primary_inputs);
+        eprintln!("{:?}", ecpm.pseudo_primary_outputs);
     }
 }
