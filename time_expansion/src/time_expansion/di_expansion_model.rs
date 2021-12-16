@@ -6,15 +6,7 @@ use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, ModuleError, PortWire, Verilog, Wire};
 use std::collections::BTreeSet;
 
-#[derive(Debug, Clone)]
-pub struct DiExpansionModel {
-    combinational_part_model: ExtractedCombinationalPartModel,
-    expanded_model: Verilog,
-}
-impl DiExpansionModel {
-    pub fn expanded_model(&self) -> &Verilog {
-        &self.expanded_model
-    }
+pub trait DiExpansionModelTrait: TimeExpansionModel {
     fn sa0_suffix() -> &'static str {
         "_sa0"
     }
@@ -27,28 +19,35 @@ impl DiExpansionModel {
     fn c3_name(&self) -> String {
         self.combinational_part_name_with_suffix(Self::c3_suffix())
     }
-    fn c3_module(&self) -> &Module {
-        self.expanded_model()
-            .module_by_name(self.c3_name().as_str())
-            .unwrap()
+    fn c3_module(&self) -> &Module;
+}
+
+#[derive(Debug, Clone)]
+pub struct DiExpansionModel {
+    combinational_part_model: ExtractedCombinationalPartModel,
+    expanded_model: Verilog,
+}
+impl DiExpansionModel {
+    pub fn expanded_model(&self) -> &Verilog {
+        &self.expanded_model
     }
 }
 gen_configured_trait!(DiExpansionModel, combinational_part_model);
 impl TopModule for DiExpansionModel {
     fn top_module(&self) -> &Module {
-        self.expanded_model
+        self.expanded_model()
             .module_by_name(self.top_name().as_str())
             .unwrap()
     }
 }
 impl TimeExpansionModel for DiExpansionModel {
     fn c1_module(&self) -> &Module {
-        self.expanded_model
+        self.expanded_model()
             .module_by_name(self.c1_name().as_str())
             .unwrap()
     }
     fn c2_module(&self) -> &Module {
-        self.expanded_model
+        self.expanded_model()
             .module_by_name(self.c2_name().as_str())
             .unwrap()
     }
@@ -57,6 +56,13 @@ impl TimeExpansionModel for DiExpansionModel {
     }
     fn top_outputs(&self) -> &BTreeSet<Wire> {
         self.top_module().outputs()
+    }
+}
+impl DiExpansionModelTrait for DiExpansionModel {
+    fn c3_module(&self) -> &Module {
+        self.expanded_model()
+            .module_by_name(self.c3_name().as_str())
+            .unwrap()
     }
 }
 impl From<BroadSideExpansionModel> for DiExpansionModel {
@@ -156,23 +162,6 @@ impl DiExpansionATPGModel {
     pub fn atpg_model(&self) -> &Verilog {
         &self.atpg_model
     }
-    fn sa0_suffix() -> &'static str {
-        "_sa0"
-    }
-    fn sa1_suffix() -> &'static str {
-        "_sa1"
-    }
-    fn c3_suffix() -> &'static str {
-        "_c3"
-    }
-    fn c3_name(&self) -> String {
-        self.combinational_part_name_with_suffix(Self::c3_suffix())
-    }
-    fn c3_module(&self) -> &Module {
-        self.atpg_model()
-            .module_by_name(self.c3_name().as_str())
-            .unwrap()
-    }
     pub fn equivalent_check(&self) -> Result<(Verilog, Verilog), ModuleError> {
         let mut faulty_model = self.atpg_model.clone();
 
@@ -208,6 +197,13 @@ impl TimeExpansionModel for DiExpansionATPGModel {
     }
     fn top_outputs(&self) -> &BTreeSet<Wire> {
         self.de_model.top_outputs()
+    }
+}
+impl DiExpansionModelTrait for DiExpansionATPGModel {
+    fn c3_module(&self) -> &Module {
+        self.atpg_model()
+            .module_by_name(self.c3_name().as_str())
+            .unwrap()
     }
 }
 gen_configured_trait!(DiExpansionATPGModel, de_model);
