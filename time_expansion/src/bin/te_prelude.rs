@@ -19,11 +19,17 @@ fn main() -> Result<(), String> {
     eprintln!("expanding...");
     let cfg = ExpansionConfig::from_file(file.as_str())?;
     eprintln!("time expanding...");
-    let dem = DiExpansionATPGModel::from(DiExpansionModel::from(BroadSideExpansionModel::from(
+    let dem = DiExpansionModel::from(BroadSideExpansionModel::from(
         ExtractedCombinationalPartModel::from(ConfiguredModel::from(cfg)),
-    )));
+    ));
+    eprintln!("writing to {} ...", dem.cfg_output_file());
+    let mut write_file = File::create(dem.cfg_output_file()).unwrap();
+    let mut buf_writer = BufWriter::new(write_file);
+    buf_writer.write(dem.expanded_model().gen().as_bytes());
+
+    let dam = DiExpansionATPGModel::from(dem);
     eprintln!("fault injecting ...");
-    let (ref_v, imp_v) = dem.equivalent_check().unwrap();
+    let (ref_v, imp_v) = dam.equivalent_check().unwrap();
     eprintln!("writing to ref.v ...");
     let mut write_file = File::create("ref.v").unwrap();
     let mut buf_writer = BufWriter::new(write_file);
