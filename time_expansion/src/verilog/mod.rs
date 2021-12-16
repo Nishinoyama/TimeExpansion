@@ -361,7 +361,7 @@ impl Ord for SignalRange {
                 Multiple(_) => Less,
             },
             Multiple(lrange) => match other {
-                Single => Equal,
+                Single => Greater,
                 Multiple(rrange) => lrange.cmp(rrange),
             },
         }
