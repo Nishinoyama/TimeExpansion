@@ -227,7 +227,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
             top_module.push_wire(Wire::new_single(observable_port.clone()));
             let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
             c1_gate.push_port(PortWire::Wire(
-                observable_port.clone(),
+                observable_port,
                 restriction_wire.clone(),
             ));
 
@@ -237,7 +237,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                 .unwrap();
             let restricted_assigns = restricted_cmb_gate
                 .ports()
-                .into_iter()
+                .iter()
                 .filter_map(|port_wire| {
                     top_module
                         .assigns()
@@ -251,7 +251,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                 .into_iter()
                 .enumerate()
                 .for_each(|(i, res_assign)| {
-                    let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
+                    let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
                     let top_output = res_out.next().unwrap();
                     let module_output = res_out.next().unwrap();
                     let ppo_r = format!(
@@ -268,7 +268,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                         restriction_gate
                             .push_port(Wire(String::from('A'), restriction_wire.clone()));
                         restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                        restriction_gate.push_port(Wire(String::from('Z'), top_output.clone()));
+                        restriction_gate.push_port(Wire(String::from('Z'), top_output));
                     }
                     top_module.push_gate(
                         format!(
@@ -321,10 +321,10 @@ mod test {
         ))
     }
     fn write_file<T: ConfiguredTrait>(model: &T, bytes: &[u8]) -> std::io::Result<()> {
-        let mut file = File::create(model.cfg_output_file())?;
+        let file = File::create(model.cfg_output_file())?;
         writer(file, bytes)
     }
-    fn writer(mut file: File, bytes: &[u8]) -> std::io::Result<()> {
+    fn writer(file: File, bytes: &[u8]) -> std::io::Result<()> {
         let mut writer = BufWriter::new(file);
         writer.write(bytes)?;
         Ok(())

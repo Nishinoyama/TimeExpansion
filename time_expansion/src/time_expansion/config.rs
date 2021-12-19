@@ -107,7 +107,7 @@ impl ExpansionConfig {
         let config_buf_reader = BufReader::new(config_file);
         let lines = config_buf_reader
             .lines()
-            .map(|line| line.unwrap().split("#").next().unwrap().to_string())
+            .map(|line| line.unwrap().split('#').next().unwrap().to_string())
             .collect();
         Ok(lines)
     }
@@ -127,7 +127,7 @@ impl ExpansionConfig {
         let mut line_iter = lines.iter().enumerate();
         while let Some((i, line)) = line_iter.next() {
             if let Some(cap) = expansion_method_regex.captures(line) {
-                self.expand_method = ExpansionMethod::from_string(&cap.get(1).unwrap().as_str());
+                self.expand_method = ExpansionMethod::from_string(cap.get(1).unwrap().as_str());
             } else if let Some(cap) = input_verilog_regex.captures(line) {
                 self.input_file = cap.get(1).unwrap().as_str().to_string();
             } else if let Some(cap) = output_verilog_regex.captures(line) {
@@ -138,7 +138,7 @@ impl ExpansionConfig {
                 cap.get(1)
                     .unwrap()
                     .as_str()
-                    .split(",")
+                    .split(',')
                     .for_each(|pin| self.clock_pins.push(pin.trim().to_string()));
             } else if let Some(cap) = use_primary_io_regex.captures(line) {
                 self.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
@@ -314,27 +314,27 @@ impl FFDefinition {
         let control_regex = Regex::new(r"\s*control\s+(.+)\s*").unwrap();
         let empty_line_regex = Regex::new(r"^\s*$").unwrap();
 
-        while let Some((i, ff_line)) = line_iter.next() {
-            if ff_line.contains("}") {
+        for (i, ff_line) in line_iter {
+            if ff_line.contains('}') {
                 break;
             }
             if let Some(cap) = data_in_regex.captures(ff_line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
-                    .split(",")
+                    .split(',')
                     .for_each(|data| ff_defines.data_in.push(data.trim().to_string()));
             } else if let Some(cap) = data_out_regex.captures(ff_line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
-                    .split(",")
+                    .split(',')
                     .for_each(|data| ff_defines.data_out.push(data.trim().to_string()));
             } else if let Some(cap) = control_regex.captures(ff_line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
-                    .split(",")
+                    .split(',')
                     .for_each(|data| ff_defines.control.push(data.trim().to_string()));
             } else if empty_line_regex.is_match(ff_line) {
             } else {
@@ -384,8 +384,8 @@ impl InvDefinition {
         let output_regex = Regex::new(r"\s*output\s+(\w+)\s*").unwrap();
         let empty_line_regex = Regex::new(r"^\s*$").unwrap();
 
-        while let Some((i, inv_line)) = line_iter.next() {
-            if inv_line.contains("}") {
+        for (i, inv_line) in line_iter {
+            if inv_line.contains('}') {
                 break;
             }
             if let Some(cap) = input_regex.captures(inv_line) {

@@ -29,18 +29,13 @@ impl ConfiguredModel {
     fn extract_ff_gates(&self) -> Vec<(&FFDefinition, Wire, Gate)> {
         self.top_module()
             .gates()
-            .into_iter()
+            .iter()
             .filter_map(|(s, g)| {
-                if let Some(ff_type) = self
+                self
                     .cfg()
                     .ff_definitions()
                     .iter()
-                    .find(|ff_def| g.name().eq(ff_def.name()))
-                {
-                    Some((ff_type, Wire::new_single(s.clone()), g.clone()))
-                } else {
-                    None
-                }
+                    .find(|ff_def| g.name().eq(ff_def.name())).map(|ff_type| (ff_type, Wire::new_single(s.clone()), g.clone()))
             })
             .collect()
     }
@@ -116,8 +111,8 @@ impl From<ConfiguredModel> for ExtractedCombinationalPartModel {
             .into_iter()
             .filter(|pin| pin.name().contains("test_s"))
         {
-            extracted_module.remove_input(&test_s_pin);
-            extracted_module.remove_output(&test_s_pin);
+            extracted_module.remove_input(test_s_pin);
+            extracted_module.remove_output(test_s_pin);
         }
 
         let primary_inputs = extracted_module.inputs().iter().cloned().collect();
@@ -149,7 +144,7 @@ impl From<ConfiguredModel> for ExtractedCombinationalPartModel {
                     if let Some(port_wire) = ff_gate.port_by_name(port) {
                         extracted_module.push_input(ppi.clone());
                         // if ff's output is inverted (such as QN)
-                        if port.contains("N") {
+                        if port.contains('N') {
                             extracted_module.push_gate(
                                 format!("UN{}", i + 1),
                                 configured_model

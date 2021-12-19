@@ -25,12 +25,8 @@ impl Parser {
         })
     }
     fn consume_identifier_token(&mut self) -> Result<Option<Token>, ParseError> {
-        Ok(if let Some(token) = self.current() {
-            if let Token::Identifier(_) = token {
-                self.next()
-            } else {
-                None
-            }
+        Ok(if let Some(Token::Identifier(_)) = self.current() {
+            self.next()
         } else {
             None
         })
@@ -40,12 +36,8 @@ impl Parser {
         self.consume_token_if_eq(expected_token)
     }
     fn consume_number_token(&mut self) -> Result<Option<Token>, ParseError> {
-        Ok(if let Some(token) = self.current() {
-            if let Token::Number(_) = token {
-                self.next()
-            } else {
-                None
-            }
+        Ok(if let Some(Token::Number(_)) = self.current() {
+            self.next()
         } else {
             None
         })
@@ -107,7 +99,7 @@ impl Parser {
     /// module := "module" identifier "(" declarations ")" ";" statements* "endmodule"
     /// ```
     fn module(&mut self) -> Result<Option<Module>, ParseError> {
-        if let Some(_) = self.consume_reserved_token("module")? {
+        if self.consume_reserved_token("module")?.is_some() {
             let mut module = Module::default();
             *module.name_mut() = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
@@ -127,25 +119,25 @@ impl Parser {
     ///                identifier identifier "(" gate_ports ")" ) ";"
     /// ```
     fn statement(&mut self, module: &mut Module) -> Result<Option<()>, ParseError> {
-        if let Some(_) = self.consume_reserved_token("input")? {
+        if self.consume_reserved_token("input")?.is_some() {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
             signals.into_iter().for_each(|s| {
                 module.push_input(Wire::new(range.clone(), s));
             });
-        } else if let Some(_) = self.consume_reserved_token("output")? {
+        } else if self.consume_reserved_token("output")?.is_some() {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
             signals.into_iter().for_each(|s| {
                 module.push_output(Wire::new(range.clone(), s));
             });
-        } else if let Some(_) = self.consume_reserved_token("wire")? {
+        } else if self.consume_reserved_token("wire")?.is_some() {
             let range = self.range()?;
             let (range, signals) = self.declarations(range)?;
             signals.into_iter().for_each(|s| {
                 module.push_wire(Wire::new(range.clone(), s));
             });
-        } else if let Some(_) = self.consume_reserved_token("assign")? {
+        } else if self.consume_reserved_token("assign")?.is_some() {
             self.expressions()?
                 .into_iter()
                 .for_each(|s| module.push_assign(s));
@@ -171,7 +163,7 @@ impl Parser {
     ) -> Result<(SignalRange, Vec<String>), ParseError> {
         use SignalRange::*;
         let signal_range = if let Some(sr) = range {
-            Multiple(sr.clone())
+            Multiple(sr)
         } else {
             Single
         };
@@ -248,7 +240,7 @@ impl Parser {
     /// gate_ports := ( "." identifier "(" identifier_range | number ")" )*
     /// ```
     fn gate_ports(&mut self, mut gate: Gate) -> Result<Gate, ParseError> {
-        while let Some(_) = self.consume_reserved_token(".")? {
+        while self.consume_reserved_token(".")?.is_some() {
             let port = self.expect_identifier()?.to_string();
             self.expect_reserved_token("(")?;
             if let Some(wire) = self.consume_number_token()? {

@@ -201,12 +201,12 @@ impl BroadSideExpansionATPGModel {
 
         // insert stuck-at-fault into c2
         let c2_ref = atpg_model
-            .module_by_name_mut(&self.c2_module().name())
+            .module_by_name_mut(self.c2_module().name())
             .unwrap();
         let c2_imp = c2_ref
             .insert_stuck_at_fault(
                 format!("{}_imp", self.c2_module().name()).as_str(),
-                &self.cfg_equivalent_check().first().unwrap(),
+                self.cfg_equivalent_check().first().unwrap(),
             )
             .ok()
             .unwrap();
@@ -273,7 +273,7 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
             .into_iter()
             .enumerate()
             .for_each(|(i, res_assign)| {
-                let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
+                let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
                 let po = res_out.next().unwrap();
                 let ppo_c2 = res_out.next().unwrap();
                 let ppo_r = format!("{}_{}", ppo_c2, fault.location().replace("/", "_"));
@@ -284,7 +284,7 @@ impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                     use crate::verilog::PortWire::Wire;
                     restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
                     restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                    restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
+                    restriction_gate.push_port(Wire(String::from('Z'), po));
                 }
                 top_module.push_gate(
                     format!("R{}_{}", i + 1, fault.location().replace("/", "_")),

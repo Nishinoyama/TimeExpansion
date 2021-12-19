@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Reserved(String),
@@ -5,12 +7,16 @@ pub enum Token {
     Number(String),
 }
 
-impl Token {
-    pub fn to_string(&self) -> String {
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use crate::verilog::ast::token::Token::*;
-        match self {
-            Reserved(name) | Identifier(name) | Number(name) => name.clone(),
-        }
+        write!(
+            f,
+            "{}",
+            match self {
+                Reserved(name) | Identifier(name) | Number(name) => name.clone(),
+            }
+        )
     }
 }
 

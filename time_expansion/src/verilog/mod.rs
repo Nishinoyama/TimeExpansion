@@ -33,7 +33,7 @@ impl Verilog {
             net_list += &line;
             net_list += &String::from("\n");
         }
-        Ok(Self::from_net_list(net_list.as_str())?)
+        Self::from_net_list(net_list.as_str())
     }
     pub fn push_module(&mut self, module: Module) {
         self.modules.push(module);
@@ -56,15 +56,11 @@ impl Verilog {
 
 impl NetlistSerializer for Verilog {
     fn gen(&self) -> String {
-        format!(
-            "{modules}",
-            modules = self
-                .modules
-                .iter()
-                .map(|module| module.gen())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
+        self.modules
+            .iter()
+            .map(|module| module.gen())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -116,7 +112,7 @@ impl Module {
     pub fn push_assign(&mut self, assign: String) {
         self.assigns.push(assign);
     }
-    pub fn remove_assign(&mut self, assign: &String) -> Option<String> {
+    pub fn remove_assign(&mut self, assign: &str) -> Option<String> {
         if let Some(i) = self.assigns.iter().position(|s| s.eq(assign)) {
             Some(self.assigns.remove(i))
         } else {
@@ -156,7 +152,7 @@ impl Module {
         signal: &str,
         sa_value: bool,
     ) -> Result<String, ModuleError> {
-        let signal = signal.split("/").collect::<Vec<_>>();
+        let signal = signal.split('/').collect::<Vec<_>>();
         let slow_to = if sa_value { "stf" } else { "str" };
         if signal.len() == 1 {
             let primary_io = signal[0];
@@ -196,7 +192,7 @@ impl Module {
         let mut faulty_module = self.clone();
         faulty_module.name = new_module_name.to_string();
         let sa_value = format!("1'b{}", if fault.sa_value() { 1 } else { 0 });
-        let stuck_signal = fault.location().split("/").collect::<Vec<_>>();
+        let stuck_signal = fault.location().split('/').collect::<Vec<_>>();
         if stuck_signal.len() == 1 {
             // top level port stuck fault
             let stuck_wire = stuck_signal[0].to_string();
@@ -215,7 +211,7 @@ impl Module {
                     let wire = port_wire.wire_mut();
                     if stuck_wire.eq(wire) {
                         // TODO: Remove "Z" or "Y" Magic which means output port!
-                        if port.contains("Z") || port.contains("Y") || port.contains("Q") {
+                        if port.contains('Z') || port.contains('Y') || port.contains('Q') {
                             let opened_wire = format!("{}_drained", wire);
                             faulty_module.push_wire(Wire::new_single(opened_wire.clone()));
                             faulty_module.push_assign(format!("{} = {}", wire, sa_value));
@@ -240,16 +236,16 @@ impl Module {
             let port_wire = stuck_gate.port_by_name_mut(&stuck_port_name).unwrap();
             let wire = port_wire.wire_mut();
             // TODO: Remove "Z" or "Y" Magic which means output port!
-            if stuck_port_name.contains("Z")
-                || stuck_port_name.contains("Y")
-                || stuck_port_name.contains("Q")
+            if stuck_port_name.contains('Z')
+                || stuck_port_name.contains('Y')
+                || stuck_port_name.contains('Q')
             {
                 let opened_wire = format!("{}_drained", wire);
                 faulty_module.push_wire(Wire::new_single(opened_wire.clone()));
                 faulty_module.push_assign(format!("{} = {}", wire, sa_value));
-                *wire = opened_wire.clone();
+                *wire = opened_wire;
             } else {
-                *wire = sa_value.clone();
+                *wire = sa_value;
             }
             faulty_module.remove_gate(&stuck_gate_ident);
             faulty_module.push_gate(stuck_gate_ident, stuck_gate)
@@ -302,7 +298,7 @@ impl NetlistSerializer for Module {
             pins = self
                 .pins()
                 .into_iter()
-                .map(|pin| pin.name().clone())
+                .map(|pin| pin.name())
                 .collect::<Vec<_>>()
                 .join(", "),
         );
@@ -312,7 +308,7 @@ impl NetlistSerializer for Module {
             (self.wires(), "wire"),
         ];
         for (wires, wire_type) in wires {
-            for (r, s) in Self::wires_by_signal_range(&wires) {
+            for (r, s) in Self::wires_by_signal_range(wires) {
                 module += &format!(
                     "  {wire_type} {range}{wires};\n",
                     wire_type = wire_type,
