@@ -22,4 +22,7 @@ impl Fault {
             "str"
         }
     }
+    pub fn location_sanitized(&self) -> String {
+        self.location().replace('[', "_").replace(']', "_")
+    }
 }

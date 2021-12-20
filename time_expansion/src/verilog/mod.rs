@@ -155,7 +155,7 @@ impl Module {
         let signal = signal.split('/').collect::<Vec<_>>();
         let slow_to = if sa_value { "stf" } else { "str" };
         if signal.len() == 1 {
-            let primary_io = signal[0];
+            let primary_io = signal[0].replace('[', "_").replace(']', "_");
             let observable_wire = format!("{}_tp_{}", primary_io, slow_to);
             self.push_assign(format!("{} = {}", observable_wire, primary_io));
             self.push_output(Wire::new_single(observable_wire.clone()));

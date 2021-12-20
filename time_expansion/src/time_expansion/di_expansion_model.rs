@@ -207,6 +207,7 @@ impl DiExpansionModelTrait for DiExpansionATPGModel {
     }
 }
 gen_configured_trait!(DiExpansionATPGModel, de_model);
+// TODO: This is TryFrom!!
 impl From<DiExpansionModel> for DiExpansionATPGModel {
     /// insert restricted value gates for generating atpg model
     fn from(de_model: DiExpansionModel) -> Self {
@@ -226,10 +227,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
             let restriction_wire = observable_port.clone();
             top_module.push_wire(Wire::new_single(observable_port.clone()));
             let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
-            c1_gate.push_port(PortWire::Wire(
-                observable_port,
-                restriction_wire.clone(),
-            ));
+            c1_gate.push_port(PortWire::Wire(observable_port, restriction_wire.clone()));
 
             let restricted_cmb_gate = de_model
                 .top_module()
@@ -257,7 +255,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                     let ppo_r = format!(
                         "{}_{}_{}",
                         module_output,
-                        ec_fault.location().replace("/", "_"),
+                        ec_fault.location_sanitized().replace("/", "_"),
                         ec_fault.slow_to()
                     );
                     let mut restriction_gate = Gate::default();
@@ -274,7 +272,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                         format!(
                             "R{}_{}_{}",
                             i + 1,
-                            ec_fault.location().replace("/", "_"),
+                            ec_fault.location_sanitized().replace("/", "_"),
                             ec_fault.slow_to()
                         ),
                         restriction_gate,
