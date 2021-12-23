@@ -289,7 +289,7 @@ impl TryFrom<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                         restriction_gate
                             .push_port(Wire(String::from('A'), restriction_wire.clone()));
                         restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                        restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
+                        restriction_gate.push_port(Wire(String::from('Z'), po));
                     }
                     top_module.push_gate(
                         format!("R{}_{}", i + 1, fault.sanitized_location()),

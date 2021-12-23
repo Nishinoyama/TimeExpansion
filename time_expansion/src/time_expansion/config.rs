@@ -7,7 +7,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::iter::Enumerate;
 use std::option::Option::Some;
-use std::slice::Iter;
 
 #[macro_export]
 macro_rules! gen_configured_trait {
@@ -124,25 +123,25 @@ impl ExpansionConfig {
         let inv_definitions_regex = Regex::new(r"\s*inv\s+([^{]+)\s*\{.*").unwrap();
         let empty_line_regex = Regex::new(r"^\s*$").unwrap();
 
-        let mut line_iter = lines.iter().enumerate();
+        let mut line_iter = lines.into_iter().enumerate();
         while let Some((i, line)) = line_iter.next() {
-            if let Some(cap) = expansion_method_regex.captures(line) {
+            if let Some(cap) = expansion_method_regex.captures(&line) {
                 self.expand_method = ExpansionMethod::from_string(cap.get(1).unwrap().as_str());
-            } else if let Some(cap) = input_verilog_regex.captures(line) {
+            } else if let Some(cap) = input_verilog_regex.captures(&line) {
                 self.input_file = cap.get(1).unwrap().as_str().to_string();
-            } else if let Some(cap) = output_verilog_regex.captures(line) {
+            } else if let Some(cap) = output_verilog_regex.captures(&line) {
                 self.output_file = cap.get(1).unwrap().as_str().to_string();
-            } else if let Some(cap) = top_module_regex.captures(line) {
+            } else if let Some(cap) = top_module_regex.captures(&line) {
                 self.top_module = cap.get(1).unwrap().as_str().to_string();
-            } else if let Some(cap) = clock_pins_regex.captures(line) {
+            } else if let Some(cap) = clock_pins_regex.captures(&line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
                     .split(',')
                     .for_each(|pin| self.clock_pins.push(pin.trim().to_string()));
-            } else if let Some(cap) = use_primary_io_regex.captures(line) {
+            } else if let Some(cap) = use_primary_io_regex.captures(&line) {
                 self.use_primary_io = !cap.get(1).unwrap().as_str().to_lowercase().eq("no");
-            } else if let Some(_cap) = multi_ec_regex.captures(line) {
+            } else if let Some(_cap) = multi_ec_regex.captures(&line) {
                 let fault_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
                 while let Some(fault_cap) =
                     fault_regex.captures(line_iter.next().unwrap().1.as_str())
@@ -152,7 +151,7 @@ impl ExpansionConfig {
                         fault_cap.get(1).unwrap().as_str().eq("stf"),
                     ))
                 }
-            } else if let Some(cap) = equivalent_check_regex.captures(line) {
+            } else if let Some(cap) = equivalent_check_regex.captures(&line) {
                 let fault_regex = Regex::new(r"\s*(st[rf])\s+(\S+)\s+(\S+).*").unwrap();
                 if let Some(fault_cap) = fault_regex.captures(cap.get(1).unwrap().as_str()) {
                     self.equivalent_check.push(Fault::new(
@@ -165,15 +164,15 @@ impl ExpansionConfig {
                         i + 1
                     )));
                 }
-            } else if let Some(cap) = ff_definitions_regex.captures(line) {
+            } else if let Some(cap) = ff_definitions_regex.captures(&line) {
                 let mut ff_define = FFDefinition::from_file_iter(&mut line_iter)?;
                 *ff_define.name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
                 self.ff_definitions.push(ff_define);
-            } else if let Some(cap) = inv_definitions_regex.captures(line) {
+            } else if let Some(cap) = inv_definitions_regex.captures(&line) {
                 let mut inv_define = InvDefinition::from_file_iter(&mut line_iter)?;
                 *inv_define.name_mut() = cap.get(1).unwrap().as_str().trim().to_string();
                 self.inv_definition = inv_define;
-            } else if empty_line_regex.is_match(line) {
+            } else if empty_line_regex.is_match(&line) {
             } else {
                 // eprintln!("Error: Undefined Option");
                 // eprintln!("Syntax error at line {}", i + 1);
@@ -307,7 +306,7 @@ pub struct FFDefinition {
 
 impl FFDefinition {
     pub fn from_file_iter(
-        line_iter: &mut Enumerate<Iter<String>>,
+        line_iter: &mut Enumerate<std::vec::IntoIter<String>>,
     ) -> Result<Self, FFDefinitionError> {
         let mut ff_defines = Self::default();
         let data_in_regex = Regex::new(r"\s*data-in\s+(.+)\s*").unwrap();
@@ -319,25 +318,25 @@ impl FFDefinition {
             if ff_line.contains('}') {
                 break;
             }
-            if let Some(cap) = data_in_regex.captures(ff_line) {
+            if let Some(cap) = data_in_regex.captures(&ff_line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
                     .split(',')
                     .for_each(|data| ff_defines.data_in.push(data.trim().to_string()));
-            } else if let Some(cap) = data_out_regex.captures(ff_line) {
+            } else if let Some(cap) = data_out_regex.captures(&ff_line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
                     .split(',')
                     .for_each(|data| ff_defines.data_out.push(data.trim().to_string()));
-            } else if let Some(cap) = control_regex.captures(ff_line) {
+            } else if let Some(cap) = control_regex.captures(&ff_line) {
                 cap.get(1)
                     .unwrap()
                     .as_str()
                     .split(',')
                     .for_each(|data| ff_defines.control.push(data.trim().to_string()));
-            } else if empty_line_regex.is_match(ff_line) {
+            } else if empty_line_regex.is_match(&ff_line) {
             } else {
                 return Err(FFDefinitionError::UndefinedOption(format!(
                     "Syntax Error at line {}",
@@ -378,7 +377,7 @@ pub struct InvDefinition {
 
 impl InvDefinition {
     pub fn from_file_iter(
-        line_iter: &mut Enumerate<Iter<String>>,
+        line_iter: &mut Enumerate<std::vec::IntoIter<String>>,
     ) -> Result<Self, InvDefinitionError> {
         let mut inv_defines = Self::default();
         let input_regex = Regex::new(r"\s*input\s+(\w+)\s*").unwrap();
@@ -389,11 +388,11 @@ impl InvDefinition {
             if inv_line.contains('}') {
                 break;
             }
-            if let Some(cap) = input_regex.captures(inv_line) {
+            if let Some(cap) = input_regex.captures(&inv_line) {
                 inv_defines.input = cap.get(1).unwrap().as_str().trim().to_string();
-            } else if let Some(cap) = output_regex.captures(inv_line) {
+            } else if let Some(cap) = output_regex.captures(&inv_line) {
                 inv_defines.output = cap.get(1).unwrap().as_str().trim().to_string();
-            } else if empty_line_regex.is_match(inv_line) {
+            } else if empty_line_regex.is_match(&inv_line) {
             } else {
                 return Err(InvDefinitionError::UndefinedOption(format!(
                     "Syntax Error at line {}",

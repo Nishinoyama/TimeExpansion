@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::Formatter;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
@@ -7,7 +7,7 @@ pub enum Token {
     Number(String),
 }
 
-impl Display for Token {
+impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use crate::verilog::ast::token::Token::*;
         write!(

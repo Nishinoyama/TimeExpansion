@@ -33,11 +33,11 @@ impl ConfiguredModel {
             .gates()
             .iter()
             .filter_map(|(s, g)| {
-                self
-                    .cfg()
+                self.cfg()
                     .ff_definitions()
                     .iter()
-                    .find(|ff_def| g.name().eq(ff_def.name())).map(|ff_type| (ff_type, Wire::new_single(s.clone()), g.clone()))
+                    .find(|ff_def| g.name().eq(ff_def.name()))
+                    .map(|ff_type| (ff_type, Wire::new_single(s.clone()), g.clone()))
             })
             .collect()
     }

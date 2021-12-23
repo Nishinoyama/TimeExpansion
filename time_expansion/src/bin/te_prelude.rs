@@ -13,7 +13,7 @@ fn main() -> Result<(), ExpansionConfigError> {
     let file = argv
         .get(1)
         .cloned()
-        .unwrap_or(String::from("expansion.conf"));
+        .unwrap_or_else(|| String::from("expansion.conf"));
     eprintln!("expanding...");
     let cfg = ExpansionConfig::from_file(file.as_str())?;
     eprintln!("time expanding...");
@@ -23,7 +23,7 @@ fn main() -> Result<(), ExpansionConfigError> {
     eprintln!("writing to {}...", bem.cfg_output_file());
     let write_file = File::create(bem.cfg_output_file())?;
     let mut buf_writer = BufWriter::new(write_file);
-    buf_writer.write(bem.expanded_model().gen().as_bytes())?;
+    buf_writer.write_all(bem.expanded_model().gen().as_bytes())?;
 
     eprintln!("atpg expanding...");
     let bam = BroadSideExpansionATPGModel::try_from(bem)?;
@@ -32,11 +32,11 @@ fn main() -> Result<(), ExpansionConfigError> {
     eprintln!("writing to ref.v...");
     let write_file = File::create("ref.v")?;
     let mut buf_writer = BufWriter::new(write_file);
-    buf_writer.write(ref_v.gen().as_bytes())?;
+    buf_writer.write_all(ref_v.gen().as_bytes())?;
     eprintln!("writing to imp.v...");
     let write_file = File::create("imp.v")?;
     let mut buf_writer = BufWriter::new(write_file);
-    buf_writer.write(imp_v.gen().as_bytes())?;
+    buf_writer.write_all(imp_v.gen().as_bytes())?;
     eprintln!("done!");
     Ok(())
 }
