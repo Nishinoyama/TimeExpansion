@@ -1,8 +1,8 @@
 use crate::gen_configured_trait;
 use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
-use crate::verilog::{Gate, Module, PortWire, Verilog, Wire};
-use std::collections::BTreeSet;
+use crate::verilog::{Gate, Module, PortWire, Verilog, VerilogError, Wire};
+use std::collections::btree_set::BTreeSet;
 
 pub trait TimeExpansionModel: ConfiguredTrait {
     fn c1_suffix() -> &'static str {
@@ -183,36 +183,19 @@ pub struct BroadSideExpansionATPGModel {
     atpg_model: Verilog,
 }
 impl BroadSideExpansionATPGModel {
-    fn equivalent_check(&self) -> Result<Verilog, String> {
-        let mut atpg_model = self.atpg_model.clone();
-        let bs_top_name = self.bs_model.top_name();
+    pub fn equivalent_check(&self) -> Result<(Verilog, Verilog), VerilogError> {
+        let mut faulty_model = self.atpg_model.clone();
 
         // build bs_ref and bs_imp
         // replace bs_imp's c2 gate with c2_imp
-        let bs_ref = atpg_model.module_by_name_mut(&bs_top_name).unwrap();
-        *bs_ref.name_mut() = format!("{}_ref", bs_top_name);
-        let mut bs_imp = bs_ref.clone();
-        *bs_imp.name_mut() = format!("{}_imp", bs_top_name);
-        *bs_imp
-            .gate_mut_by_name(&String::from("c2"))
-            .unwrap()
-            .name_mut() = format!("{}_imp", self.c2_module().name());
-        atpg_model.push_module(bs_imp);
+        for fault in self.cfg_equivalent_check() {
+            let c_imp = faulty_model
+                .module_by_name_mut(self.c2_name().as_str())
+                .unwrap();
+            *c_imp = c_imp.insert_stuck_at_fault(self.c2_name().as_str(), fault)?;
+        }
 
-        // insert stuck-at-fault into c2
-        let c2_ref = atpg_model
-            .module_by_name_mut(self.c2_module().name())
-            .unwrap();
-        let c2_imp = c2_ref
-            .insert_stuck_at_fault(
-                format!("{}_imp", self.c2_module().name()).as_str(),
-                self.cfg_equivalent_check().first().unwrap(),
-            )
-            .ok()
-            .unwrap();
-        atpg_model.push_module(c2_imp);
-
-        Ok(atpg_model)
+        Ok((self.atpg_model.clone(), faulty_model))
     }
 }
 impl TopModule for BroadSideExpansionATPGModel {
@@ -235,82 +218,84 @@ impl TimeExpansionModel for BroadSideExpansionATPGModel {
     }
 }
 gen_configured_trait!(BroadSideExpansionATPGModel, bs_model);
-impl From<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
+impl TryFrom<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
+    type Error = crate::verilog::VerilogError;
+
     /// insert restricted value gates for generating atpg model
-    fn from(bs_model: BroadSideExpansionModel) -> Self {
+    fn try_from(bs_model: BroadSideExpansionModel) -> Result<Self, Self::Error> {
         let mut atpg_model = Verilog::default();
-        let fault = bs_model.cfg_equivalent_check().first().unwrap();
-
-        // gen observable wire in c1 for restriction
-        let mut c1_module = bs_model.c1_module().clone();
-        let observable_wire = c1_module
-            .add_observation_point(fault.location(), fault.sa_value())
-            .unwrap();
-
-        // take restriction wire from c1
         let mut top_module = bs_model.top_module().clone();
-        let restriction_wire = observable_wire;
-        top_module.push_wire(Wire::new_single(restriction_wire.clone()));
-        let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
-        c1_gate.push_port(PortWire::Wire(
-            restriction_wire.clone(),
-            restriction_wire.clone(),
-        ));
-
-        let c2_outputs = bs_model.c2_module().outputs().clone();
-        let restricted_outputs = c2_outputs
-            .into_iter()
-            .filter_map(|ppo| {
-                top_module
-                    .assigns()
-                    .iter()
-                    .find(|assign| assign.ends_with(&format!("{}_c2", ppo.name())))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        restricted_outputs
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, res_assign)| {
-                let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
-                let po = res_out.next().unwrap();
-                let ppo_c2 = res_out.next().unwrap();
-                let ppo_r = format!("{}_{}", ppo_c2, fault.location().replace("/", "_"));
-                let mut restriction_gate = Gate::default();
-                *restriction_gate.name_mut() =
-                    String::from(if fault.sa_value() { "AN2" } else { "OR2" });
-                {
-                    use crate::verilog::PortWire::Wire;
-                    restriction_gate.push_port(Wire(String::from('A'), restriction_wire.clone()));
-                    restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                    restriction_gate.push_port(Wire(String::from('Z'), po));
-                }
-                top_module.push_gate(
-                    format!("R{}_{}", i + 1, fault.location().replace("/", "_")),
-                    restriction_gate,
-                );
-                top_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));
-                top_module.push_wire(Wire::new_single(ppo_r));
-                top_module.remove_assign(&res_assign);
-            });
-
+        let mut c1_module = bs_model.c1_module().clone();
         let c2_module = bs_model.c2_module().clone();
+
+        for fault in bs_model.cfg_equivalent_check() {
+            // gen observable wire in c1 for restriction
+            let observable_wire =
+                c1_module.add_observation_point(fault.location(), fault.sa_value())?;
+
+            // take restriction wire from c1
+            let restriction_wire = observable_wire;
+            top_module.push_wire(Wire::new_single(restriction_wire.clone()));
+            let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
+            c1_gate.push_port(PortWire::Wire(
+                restriction_wire.clone(),
+                restriction_wire.clone(),
+            ));
+
+            let c2_outputs = bs_model.c2_module().outputs().clone();
+            let restricted_outputs = c2_outputs
+                .into_iter()
+                .filter_map(|ppo| {
+                    top_module
+                        .assigns()
+                        .iter()
+                        .find(|assign| assign.ends_with(&format!("{}_c2", ppo.name())))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            restricted_outputs
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, res_assign)| {
+                    let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
+                    let po = res_out.next().unwrap();
+                    let ppo_c2 = res_out.next().unwrap();
+                    let ppo_r = format!("{}_{}", ppo_c2, fault.location().replace("/", "_"));
+                    let mut restriction_gate = Gate::default();
+                    *restriction_gate.name_mut() =
+                        String::from(if fault.sa_value() { "AN2" } else { "OR2" });
+                    {
+                        use crate::verilog::PortWire::Wire;
+                        restriction_gate
+                            .push_port(Wire(String::from('A'), restriction_wire.clone()));
+                        restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
+                        restriction_gate.push_port(Wire(String::from('Z'), po.clone()));
+                    }
+                    top_module.push_gate(
+                        format!("R{}_{}", i + 1, fault.location().replace("/", "_")),
+                        restriction_gate,
+                    );
+                    top_module.push_assign(format!("{} = {}", ppo_r, ppo_c2));
+                    top_module.push_wire(Wire::new_single(ppo_r));
+                    top_module.remove_assign(&res_assign);
+                });
+        }
 
         atpg_model.push_module(top_module);
         atpg_model.push_module(c1_module);
         atpg_model.push_module(c2_module);
 
-        Self {
+        Ok(Self {
             bs_model,
             atpg_model,
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::time_expansion::config::ExpansionConfig;
+    use crate::time_expansion::config::{ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::time_expansion_model::{
         BroadSideExpansionATPGModel, BroadSideExpansionModel,
     };
@@ -330,21 +315,21 @@ mod test {
     }
 
     #[test]
-    pub fn broad_side_expand_atpg() {
+    pub fn broad_side_expand_atpg() -> Result<(), ExpansionConfigError> {
         let bs = BroadSideExpansionModel::from(ExtractedCombinationalPartModel::from(
             test_configured_model(),
         ));
-        let atpg = BroadSideExpansionATPGModel::from(bs);
-        eprintln!("{}", atpg.atpg_model.gen());
+        let atpg = BroadSideExpansionATPGModel::try_from(bs)?;
+        Ok(())
     }
 
     #[test]
-    pub fn equivalent_check_test() {
+    pub fn equivalent_check_test() -> Result<(), ExpansionConfigError> {
         let bs = BroadSideExpansionModel::from(ExtractedCombinationalPartModel::from(
             test_configured_model(),
         ));
-        let atpg = BroadSideExpansionATPGModel::from(bs);
-        let ec = atpg.equivalent_check().unwrap();
-        eprintln!("{}", ec.gen());
+        let atpg = BroadSideExpansionATPGModel::try_from(bs)?;
+        let ec = atpg.equivalent_check()?;
+        Ok(())
     }
 }

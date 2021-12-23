@@ -1,6 +1,6 @@
 use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
 use crate::verilog::fault::Fault;
-use crate::verilog::{Gate, ModuleError, PortWire, Verilog};
+use crate::verilog::{Gate, ModuleError, PortWire, Verilog, VerilogError};
 use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
@@ -442,6 +442,7 @@ pub enum ExpansionConfigError {
     FFDefinitionError(FFDefinitionError),
     InvDefinitionError(InvDefinitionError),
     ModuleError(ModuleError),
+    VerilogError(VerilogError),
     IOError(std::io::Error),
 }
 
@@ -454,6 +455,12 @@ impl From<std::io::Error> for ExpansionConfigError {
 impl From<ModuleError> for ExpansionConfigError {
     fn from(e: ModuleError) -> Self {
         Self::ModuleError(e)
+    }
+}
+
+impl From<VerilogError> for ExpansionConfigError {
+    fn from(e: VerilogError) -> Self {
+        Self::VerilogError(e)
     }
 }
 

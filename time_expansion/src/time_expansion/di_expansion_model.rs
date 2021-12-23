@@ -3,8 +3,8 @@ use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::time_expansion_model::{BroadSideExpansionModel, TimeExpansionModel};
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
 use crate::verilog::netlist_serializer::NetlistSerializer;
-use crate::verilog::{Gate, Module, ModuleError, PortWire, Verilog, Wire};
-use std::collections::BTreeSet;
+use crate::verilog::{Gate, Module, PortWire, Verilog, VerilogError, Wire};
+use std::collections::btree_set::BTreeSet;
 
 pub trait DiExpansionModelTrait: TimeExpansionModel {
     fn sa0_suffix() -> &'static str {
@@ -162,7 +162,7 @@ impl DiExpansionATPGModel {
     pub fn atpg_model(&self) -> &Verilog {
         &self.atpg_model
     }
-    pub fn equivalent_check(&self) -> Result<(Verilog, Verilog), ModuleError> {
+    pub fn equivalent_check(&self) -> Result<(Verilog, Verilog), VerilogError> {
         let mut faulty_model = self.atpg_model.clone();
 
         // build bs_ref and bs_imp
@@ -207,27 +207,29 @@ impl DiExpansionModelTrait for DiExpansionATPGModel {
     }
 }
 gen_configured_trait!(DiExpansionATPGModel, de_model);
-// TODO: This is TryFrom!!
-impl From<DiExpansionModel> for DiExpansionATPGModel {
+impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
+    type Error = crate::verilog::VerilogError;
     /// insert restricted value gates for generating atpg model
-    fn from(de_model: DiExpansionModel) -> Self {
+    fn try_from(de_model: DiExpansionModel) -> Result<Self, Self::Error> {
         let mut atpg_model = Verilog::default();
         let mut top_module = de_model.top_module().clone();
         let mut c1_module = de_model.c1_module().clone();
         let c2_module = de_model.c2_module().clone();
         let c3_module = de_model.c3_module().clone();
 
-        de_model.cfg_equivalent_check().iter().for_each(|ec_fault| {
+        for ec_fault in de_model.cfg_equivalent_check().iter() {
             // gen observable wire in c1 for restriction
-            let observable_port = c1_module
-                .add_observation_point(ec_fault.location(), ec_fault.sa_value())
-                .unwrap();
+            let observable_port =
+                c1_module.add_observation_point(ec_fault.location(), ec_fault.sa_value())?;
 
             // take restriction wire from c1's observable port
             let restriction_wire = observable_port.clone();
             top_module.push_wire(Wire::new_single(observable_port.clone()));
             let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
-            c1_gate.push_port(PortWire::Wire(observable_port, restriction_wire.clone()));
+            c1_gate.push_port(PortWire::Wire(
+                observable_port.clone(),
+                restriction_wire.clone(),
+            ));
 
             let restricted_cmb_gate = de_model
                 .top_module()
@@ -235,7 +237,7 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                 .unwrap();
             let restricted_assigns = restricted_cmb_gate
                 .ports()
-                .iter()
+                .into_iter()
                 .filter_map(|port_wire| {
                     top_module
                         .assigns()
@@ -249,13 +251,13 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                 .into_iter()
                 .enumerate()
                 .for_each(|(i, res_assign)| {
-                    let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
+                    let mut res_out = res_assign.split("=").map(|s| s.trim().to_string());
                     let top_output = res_out.next().unwrap();
                     let module_output = res_out.next().unwrap();
                     let ppo_r = format!(
                         "{}_{}_{}",
                         module_output,
-                        ec_fault.location_sanitized().replace("/", "_"),
+                        ec_fault.location().replace("/", "_"),
                         ec_fault.slow_to()
                     );
                     let mut restriction_gate = Gate::default();
@@ -266,13 +268,13 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                         restriction_gate
                             .push_port(Wire(String::from('A'), restriction_wire.clone()));
                         restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                        restriction_gate.push_port(Wire(String::from('Z'), top_output));
+                        restriction_gate.push_port(Wire(String::from('Z'), top_output.clone()));
                     }
                     top_module.push_gate(
                         format!(
                             "R{}_{}_{}",
                             i + 1,
-                            ec_fault.location_sanitized().replace("/", "_"),
+                            ec_fault.location().replace("/", "_"),
                             ec_fault.slow_to()
                         ),
                         restriction_gate,
@@ -281,17 +283,17 @@ impl From<DiExpansionModel> for DiExpansionATPGModel {
                     top_module.push_wire(Wire::new_single(ppo_r));
                     top_module.remove_assign(&res_assign);
                 });
-        });
+        }
 
         atpg_model.push_module(top_module);
         atpg_model.push_module(c1_module);
         atpg_model.push_module(c2_module);
         atpg_model.push_module(c3_module);
 
-        Self {
+        Ok(Self {
             de_model,
             atpg_model,
-        }
+        })
     }
 }
 impl NetlistSerializer for DiExpansionATPGModel {
@@ -302,7 +304,7 @@ impl NetlistSerializer for DiExpansionATPGModel {
 
 #[cfg(test)]
 mod test {
-    use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig};
+    use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::di_expansion_model::{DiExpansionATPGModel, DiExpansionModel};
     use crate::time_expansion::time_expansion_model::BroadSideExpansionModel;
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
@@ -319,29 +321,32 @@ mod test {
         ))
     }
     fn write_file<T: ConfiguredTrait>(model: &T, bytes: &[u8]) -> std::io::Result<()> {
-        let file = File::create(model.cfg_output_file())?;
+        let mut file = File::create(model.cfg_output_file())?;
         writer(file, bytes)
     }
-    fn writer(file: File, bytes: &[u8]) -> std::io::Result<()> {
+    fn writer(mut file: File, bytes: &[u8]) -> std::io::Result<()> {
         let mut writer = BufWriter::new(file);
         writer.write(bytes)?;
         Ok(())
     }
     #[test]
-    fn di_expansion_model() -> std::io::Result<()> {
+    fn di_expansion_model() -> Result<(), ExpansionConfigError> {
         let bsd = test_di_expansion_model();
-        write_file(&bsd, bsd.expanded_model().gen().as_bytes())
+        write_file(&bsd, bsd.expanded_model().gen().as_bytes())?;
+        Ok(())
     }
     #[test]
-    fn di_expansion_atpg_model() -> std::io::Result<()> {
-        let dam = DiExpansionATPGModel::from(test_di_expansion_model());
-        write_file(&dam, dam.atpg_model().gen().as_bytes())
+    fn di_expansion_atpg_model() -> Result<(), ExpansionConfigError> {
+        let dam = DiExpansionATPGModel::try_from(test_di_expansion_model())?;
+        write_file(&dam, dam.atpg_model().gen().as_bytes())?;
+        Ok(())
     }
     #[test]
-    fn di_expansion_equivalent_check() -> std::io::Result<()> {
-        let dam = DiExpansionATPGModel::from(test_di_expansion_model());
+    fn di_expansion_equivalent_check() -> Result<(), ExpansionConfigError> {
+        let dam = DiExpansionATPGModel::try_from(test_di_expansion_model())?;
         let (ref_v, imp_v) = dam.equivalent_check().unwrap();
         writer(File::create("b01_de_ref.v")?, ref_v.gen().as_bytes())?;
-        writer(File::create("b01_de_imp.v")?, imp_v.gen().as_bytes())
+        writer(File::create("b01_de_imp.v")?, imp_v.gen().as_bytes())?;
+        Ok(())
     }
 }
