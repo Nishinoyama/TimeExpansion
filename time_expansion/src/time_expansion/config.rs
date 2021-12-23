@@ -251,9 +251,10 @@ impl ExpansionConfig {
     }
 }
 
-impl From<ExpansionConfig> for Verilog {
-    fn from(cfg: ExpansionConfig) -> Self {
-        Self::from_file(cfg.input_file()).unwrap()
+impl TryFrom<ExpansionConfig> for Verilog {
+    type Error = VerilogError;
+    fn try_from(cfg: ExpansionConfig) -> Result<Self, Self::Error> {
+        Self::from_file(cfg.input_file())
     }
 }
 
@@ -519,8 +520,8 @@ mod test {
         assert_eq!(
             ec.equivalent_check,
             vec![
-                Fault::new(String::from("FLAG_reg/Q"), false),
-                Fault::new(String::from("FLAG_reg/Q"), true),
+                Fault::new(String::from("U10/B"), false),
+                Fault::new(String::from("U28/A"), true),
             ]
         );
         assert!(!ec.use_primary_io);

@@ -16,9 +16,13 @@ pub trait DiExpansionModelTrait: TimeExpansionModel {
     fn c3_suffix() -> &'static str {
         "_c3"
     }
+    fn c3_gate_name() -> &'static str {
+        "C3"
+    }
     fn c3_name(&self) -> String {
         self.combinational_part_name_with_suffix(Self::c3_suffix())
     }
+
     fn c3_module(&self) -> &Module;
 }
 
@@ -138,7 +142,7 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
             expanded_module.push_output(output_1.clone());
         }
 
-        expanded_module.push_gate(String::from("c3"), gate_c3);
+        expanded_module.push_gate(String::from(DiExpansionModel::c3_gate_name()), gate_c3);
 
         let mut verilog = Verilog::default();
         verilog.push_module(expanded_module);
@@ -225,7 +229,9 @@ impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
             // take restriction wire from c1's observable port
             let restriction_wire = observable_port.clone();
             top_module.push_wire(Wire::new_single(observable_port.clone()));
-            let c1_gate = top_module.gate_mut_by_name(&String::from("c1")).unwrap();
+            let c1_gate = top_module
+                .gate_mut_by_name(DiExpansionModel::c1_gate_name())
+                .unwrap();
             c1_gate.push_port(PortWire::Wire(
                 observable_port.clone(),
                 restriction_wire.clone(),
@@ -233,7 +239,11 @@ impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
 
             let restricted_cmb_gate = de_model
                 .top_module()
-                .gate_by_name(if ec_fault.sa_value() { "c3" } else { "c2" })
+                .gate_by_name(if ec_fault.sa_value() {
+                    DiExpansionModel::c3_gate_name()
+                } else {
+                    DiExpansionModel::c2_gate_name()
+                })
                 .unwrap();
             let restricted_assigns = restricted_cmb_gate
                 .ports()
@@ -304,49 +314,33 @@ impl NetlistSerializer for DiExpansionATPGModel {
 
 #[cfg(test)]
 mod test {
-    use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig, ExpansionConfigError};
+    use crate::time_expansion::config::{ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::di_expansion_model::{DiExpansionATPGModel, DiExpansionModel};
     use crate::time_expansion::time_expansion_model::BroadSideExpansionModel;
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
-    use crate::verilog::netlist_serializer::NetlistSerializer;
-    use std::fs::File;
-    use std::io::{BufWriter, Write};
 
-    fn test_configured_model() -> ConfiguredModel {
-        ConfiguredModel::from(ExpansionConfig::from_file("expansion_example.conf").unwrap())
+    fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
+        ConfiguredModel::try_from(ExpansionConfig::from_file("expansion.conf")?)
     }
-    fn test_di_expansion_model() -> DiExpansionModel {
-        DiExpansionModel::from(BroadSideExpansionModel::from(
-            ExtractedCombinationalPartModel::from(test_configured_model()),
-        ))
-    }
-    fn write_file<T: ConfiguredTrait>(model: &T, bytes: &[u8]) -> std::io::Result<()> {
-        let mut file = File::create(model.cfg_output_file())?;
-        writer(file, bytes)
-    }
-    fn writer(mut file: File, bytes: &[u8]) -> std::io::Result<()> {
-        let mut writer = BufWriter::new(file);
-        writer.write(bytes)?;
-        Ok(())
+    fn test_di_expansion_model() -> Result<DiExpansionModel, ExpansionConfigError> {
+        Ok(DiExpansionModel::from(BroadSideExpansionModel::from(
+            ExtractedCombinationalPartModel::from(test_configured_model()?),
+        )))
     }
     #[test]
     fn di_expansion_model() -> Result<(), ExpansionConfigError> {
-        let bsd = test_di_expansion_model();
-        write_file(&bsd, bsd.expanded_model().gen().as_bytes())?;
+        let _bsd = test_di_expansion_model()?;
         Ok(())
     }
     #[test]
     fn di_expansion_atpg_model() -> Result<(), ExpansionConfigError> {
-        let dam = DiExpansionATPGModel::try_from(test_di_expansion_model())?;
-        write_file(&dam, dam.atpg_model().gen().as_bytes())?;
+        let _dam = DiExpansionATPGModel::try_from(test_di_expansion_model()?)?;
         Ok(())
     }
     #[test]
     fn di_expansion_equivalent_check() -> Result<(), ExpansionConfigError> {
-        let dam = DiExpansionATPGModel::try_from(test_di_expansion_model())?;
-        let (ref_v, imp_v) = dam.equivalent_check().unwrap();
-        writer(File::create("b01_de_ref.v")?, ref_v.gen().as_bytes())?;
-        writer(File::create("b01_de_imp.v")?, imp_v.gen().as_bytes())?;
+        let dam = DiExpansionATPGModel::try_from(test_di_expansion_model()?)?;
+        let (_ref_v, _imp_v) = dam.equivalent_check().unwrap();
         Ok(())
     }
 }

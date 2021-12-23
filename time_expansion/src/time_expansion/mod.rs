@@ -1,5 +1,7 @@
 use crate::gen_configured_trait;
-use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfig, FFDefinition};
+use crate::time_expansion::config::{
+    ConfiguredTrait, ExpansionConfig, ExpansionConfigError, FFDefinition,
+};
 use crate::verilog::{Gate, Module, Verilog, Wire};
 
 pub mod config;
@@ -46,12 +48,13 @@ impl TopModule for ConfiguredModel {
         self.verilog.module_by_name(self.cfg_top_module()).unwrap()
     }
 }
-impl From<ExpansionConfig> for ConfiguredModel {
-    fn from(cfg: ExpansionConfig) -> Self {
-        Self {
-            verilog: Verilog::from(cfg.clone()),
+impl TryFrom<ExpansionConfig> for ConfiguredModel {
+    type Error = ExpansionConfigError;
+    fn try_from(cfg: ExpansionConfig) -> Result<Self, Self::Error> {
+        Ok(Self {
+            verilog: Verilog::try_from(cfg.clone())?,
             cfg,
-        }
+        })
     }
 }
 
@@ -184,24 +187,25 @@ mod test {
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
     use crate::verilog::netlist_serializer::NetlistSerializer;
 
-    fn test_configured_model() -> ConfiguredModel {
-        ConfiguredModel::from(ExpansionConfig::from_file("expansion_example.conf").unwrap())
+    fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
+        ConfiguredModel::try_from(ExpansionConfig::from_file("expansion.conf")?)
     }
 
     #[test]
     fn configured_model() -> Result<(), ExpansionConfigError> {
-        let cm = ConfiguredModel::from(ExpansionConfig::from_file("expansion_example.conf")?);
+        let cm = test_configured_model()?;
         eprintln!("{}", cm.verilog.gen());
         Ok(())
     }
 
     #[test]
-    pub fn extract_combinational_part() {
-        let ecpm = ExtractedCombinationalPartModel::from(test_configured_model());
+    pub fn extract_combinational_part() -> Result<(), ExpansionConfigError> {
+        let ecpm = ExtractedCombinationalPartModel::from(test_configured_model()?);
         eprintln!("{}", ecpm.extracted_module.gen());
         eprintln!("{:?}", ecpm.primary_inputs);
         eprintln!("{:?}", ecpm.primary_outputs);
         eprintln!("{:?}", ecpm.pseudo_primary_inputs);
         eprintln!("{:?}", ecpm.pseudo_primary_outputs);
+        Ok(())
     }
 }

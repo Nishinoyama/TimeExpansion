@@ -12,6 +12,9 @@ impl Fault {
     pub fn location(&self) -> &str {
         &self.location
     }
+    pub fn sanitized_location(&self) -> String {
+        self.location().replace("/", "_")
+    }
     pub fn sa_value(&self) -> bool {
         self.sa_value
     }

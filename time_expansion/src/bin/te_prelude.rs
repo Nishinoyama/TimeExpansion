@@ -18,7 +18,7 @@ fn main() -> Result<(), ExpansionConfigError> {
     let cfg = ExpansionConfig::from_file(file.as_str())?;
     eprintln!("time expanding...");
     let bem = BroadSideExpansionModel::from(ExtractedCombinationalPartModel::from(
-        ConfiguredModel::from(cfg),
+        ConfiguredModel::try_from(cfg)?,
     ));
     eprintln!("writing to {}...", bem.cfg_output_file());
     let write_file = File::create(bem.cfg_output_file())?;
