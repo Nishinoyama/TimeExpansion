@@ -8,7 +8,12 @@ use std::env::args;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-fn main() -> Result<(), ExpansionConfigError> {
+#[allow(unused_must_use)]
+fn main() {
+    prelude();
+}
+
+fn prelude() -> Result<(), ExpansionConfigError> {
     let argv = args().collect::<Vec<String>>();
     let file = argv
         .get(1)
