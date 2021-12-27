@@ -3,6 +3,7 @@ use crate::time_expansion::config::ConfiguredTrait;
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
 use crate::verilog::{Gate, Module, PortWire, Verilog, VerilogError, Wire};
 use std::collections::btree_set::BTreeSet;
+use std::convert::TryFrom;
 
 pub trait TimeExpansionModel: ConfiguredTrait {
     fn c1_suffix() -> &'static str {
@@ -90,10 +91,10 @@ impl From<ExtractedCombinationalPartModel> for BroadSideExpansionModel {
     /// if not `use_primary_io`, primary inputs will be restricted and primary outputs will be masked.
     fn from(combinational_part_model: ExtractedCombinationalPartModel) -> Self {
         let c1_module = combinational_part_model
-            .extracted_module
+            .extracted_module()
             .clone_with_name_prefix(BroadSideExpansionModel::c1_suffix());
         let c2_module = combinational_part_model
-            .extracted_module
+            .extracted_module()
             .clone_with_name_prefix(BroadSideExpansionModel::c2_suffix());
         let ppis = combinational_part_model.pseudo_primary_inputs();
         let ppos = combinational_part_model.pseudo_primary_outputs();
@@ -258,11 +259,12 @@ impl TryFrom<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                 restriction_wire.clone(),
             ));
 
+            let assigns = top_module.assigns().clone();
             let c2_outputs = bs_model.c2_module().outputs().clone();
-            let restricted_outputs = c2_outputs
+            assigns
                 .into_iter()
-                .filter_map(|ppo| {
-                    top_module.assigns().iter().find(|assign| {
+                .filter(|assign| {
+                    c2_outputs.iter().any(|ppo| {
                         assign.ends_with(&format!(
                             "{}{}",
                             ppo.name(),
@@ -270,11 +272,6 @@ impl TryFrom<BroadSideExpansionModel> for BroadSideExpansionATPGModel {
                         ))
                     })
                 })
-                .cloned()
-                .collect::<Vec<_>>();
-
-            restricted_outputs
-                .into_iter()
                 .enumerate()
                 .for_each(|(i, res_assign)| {
                     let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
@@ -319,6 +316,7 @@ mod test {
         BroadSideExpansionATPGModel, BroadSideExpansionModel,
     };
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
+    use std::convert::TryFrom;
 
     fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
         ConfiguredModel::try_from(ExpansionConfig::from_file("expansion_example.conf")?)

@@ -3,6 +3,7 @@ use crate::time_expansion::config::{
     ConfiguredTrait, ExpansionConfig, ExpansionConfigError, FFDefinition,
 };
 use crate::verilog::{Gate, Module, Verilog, Wire};
+use std::convert::TryFrom;
 
 pub mod config;
 pub mod di_expansion_model;
@@ -186,6 +187,7 @@ mod test {
     use crate::time_expansion::config::{ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
     use crate::verilog::netlist_serializer::NetlistSerializer;
+    use std::convert::TryFrom;
 
     fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
         ConfiguredModel::try_from(ExpansionConfig::from_file("expansion.conf")?)

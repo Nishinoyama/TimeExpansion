@@ -1,9 +1,11 @@
 use kyiw_time_expansion::time_expansion::config::*;
-use kyiw_time_expansion::time_expansion::time_expansion_model::{
-    BroadSideExpansionATPGModel, BroadSideExpansionModel,
+use kyiw_time_expansion::time_expansion::di_expansion_model::{
+    DiExpansionATPGModel, DiExpansionModel,
 };
+use kyiw_time_expansion::time_expansion::time_expansion_model::BroadSideExpansionModel;
 use kyiw_time_expansion::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
 use kyiw_time_expansion::verilog::netlist_serializer::NetlistSerializer;
+use std::convert::TryFrom;
 use std::env::args;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -22,18 +24,18 @@ fn prelude() -> Result<(), ExpansionConfigError> {
     eprintln!("expanding...");
     let cfg = ExpansionConfig::from_file(file.as_str())?;
     eprintln!("time expanding...");
-    let bem = BroadSideExpansionModel::from(ExtractedCombinationalPartModel::from(
-        ConfiguredModel::try_from(cfg)?,
+    let dem = DiExpansionModel::from(BroadSideExpansionModel::from(
+        ExtractedCombinationalPartModel::from(ConfiguredModel::try_from(cfg)?),
     ));
-    eprintln!("writing to {}...", bem.cfg_output_file());
-    let write_file = File::create(bem.cfg_output_file())?;
+    eprintln!("writing to {}...", dem.cfg_output_file());
+    let write_file = File::create(dem.cfg_output_file())?;
     let mut buf_writer = BufWriter::new(write_file);
-    buf_writer.write_all(bem.expanded_model().gen().as_bytes())?;
+    buf_writer.write_all(dem.expanded_model().gen().as_bytes())?;
 
     eprintln!("atpg expanding...");
-    let bam = BroadSideExpansionATPGModel::try_from(bem)?;
+    let dam = DiExpansionATPGModel::try_from(dem)?;
     eprintln!("fault injecting...");
-    let (ref_v, imp_v) = bam.equivalent_check()?;
+    let (ref_v, imp_v) = dam.equivalent_check()?;
     eprintln!("writing to ref.v...");
     let write_file = File::create("ref.v")?;
     let mut buf_writer = BufWriter::new(write_file);

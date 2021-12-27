@@ -13,7 +13,10 @@ impl Fault {
         &self.location
     }
     pub fn sanitized_location(&self) -> String {
-        self.location().replace("/", "_")
+        self.location()
+            .replace("/", "_")
+            .replace('[', "_")
+            .replace(']', "_")
     }
     pub fn sa_value(&self) -> bool {
         self.sa_value
@@ -24,8 +27,5 @@ impl Fault {
         } else {
             "str"
         }
-    }
-    pub fn location_sanitized(&self) -> String {
-        self.location().replace('[', "_").replace(']', "_")
     }
 }

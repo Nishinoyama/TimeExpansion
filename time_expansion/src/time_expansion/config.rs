@@ -2,6 +2,7 @@ use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
 use crate::verilog::fault::Fault;
 use crate::verilog::{Gate, ModuleError, PortWire, Verilog, VerilogError};
 use regex::Regex;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -439,6 +440,7 @@ pub enum InvDefinitionError {
 pub enum ExpansionConfigError {
     ConfigSyntaxError(String),
     ConfigVerificationError(ExpansionConfigVerificationError),
+    ConfigIsUnsatisfied(String),
     FFDefinitionError(FFDefinitionError),
     InvDefinitionError(InvDefinitionError),
     ModuleError(ModuleError),

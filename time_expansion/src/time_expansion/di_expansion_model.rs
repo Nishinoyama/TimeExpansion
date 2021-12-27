@@ -1,18 +1,14 @@
 use crate::gen_configured_trait;
-use crate::time_expansion::config::ConfiguredTrait;
+use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfigError};
 use crate::time_expansion::time_expansion_model::{BroadSideExpansionModel, TimeExpansionModel};
 use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
+use crate::verilog::fault::Fault;
 use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, PortWire, Verilog, VerilogError, Wire};
 use std::collections::btree_set::BTreeSet;
+use std::convert::TryFrom;
 
 pub trait DiExpansionModelTrait: TimeExpansionModel {
-    fn sa0_suffix() -> &'static str {
-        "_sa0"
-    }
-    fn sa1_suffix() -> &'static str {
-        "_sa1"
-    }
     fn c3_suffix() -> &'static str {
         "_c3"
     }
@@ -108,7 +104,7 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
             }
         }
 
-        for ppi in ppis.iter().cloned() {
+        for ppi in ppis {
             let c3_input_name = format!("{}{}", ppi.name(), DiExpansionModel::c3_suffix());
             *gate_c3.port_by_name_mut(ppi.name()).unwrap().wire_mut() = c3_input_name.clone();
         }
@@ -131,8 +127,8 @@ impl From<BroadSideExpansionModel> for DiExpansionModel {
             let c3_output_name = format!("{}{}", output.name(), DiExpansionModel::c3_suffix());
             expanded_module.remove_assign(&format!("{} = {}", output.name(), c2_output_name));
             *gate_c3.port_by_name_mut(output.name()).unwrap().wire_mut() = c3_output_name.clone();
-            *output_0.name_mut() = format!("{}{}", output.name(), DiExpansionModel::sa0_suffix());
-            *output_1.name_mut() = format!("{}{}", output.name(), DiExpansionModel::sa1_suffix());
+            *output_0.name_mut() = format!("{}_restricted", c2_output_name);
+            *output_1.name_mut() = format!("{}_restricted", c3_output_name);
             expanded_module.remove_output(&output);
             expanded_module.push_assign(format!("{} = {}", output_0.name(), c2_output_name));
             expanded_module.push_assign(format!("{} = {}", output_1.name(), c3_output_name));
@@ -163,25 +159,81 @@ pub struct DiExpansionATPGModel {
     atpg_model: Verilog,
 }
 impl DiExpansionATPGModel {
+    pub fn insert_restricted_gates(
+        top_module: &mut Module,
+        outputs: &[PortWire],
+        restriction_wire: &Wire,
+        fault: &Fault,
+        inverted: bool,
+        cmb_name: &str,
+    ) {
+        let assigns = top_module.assigns().clone();
+        assigns
+            .into_iter()
+            .filter(|assign| {
+                outputs
+                    .iter()
+                    .any(|port_wire| assign.ends_with(port_wire.wire()))
+            })
+            .enumerate()
+            .for_each(|(i, res_assign)| {
+                let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
+                let top_output = res_out.next().unwrap();
+                let module_output = res_out.next().unwrap();
+                let ppo_r = format!(
+                    "{output}_{location}_{str_stf}",
+                    output = module_output,
+                    location = fault.sanitized_location(),
+                    str_stf = fault.slow_to(),
+                );
+                let mut restriction_gate = Gate::default();
+                *restriction_gate.name_mut() = String::from(if fault.sa_value() ^ inverted {
+                    "AN2"
+                } else {
+                    "OR2"
+                });
+                {
+                    use crate::verilog::PortWire::Wire;
+                    restriction_gate
+                        .push_port(Wire(String::from('A'), restriction_wire.name().to_string()));
+                    restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
+                    restriction_gate.push_port(Wire(String::from('Z'), top_output));
+                }
+                top_module.push_gate(
+                    format!(
+                        "R{index}_{location}_{str_stf}_{cmb}",
+                        index = i + 1,
+                        location = fault.sanitized_location(),
+                        str_stf = fault.slow_to(),
+                        cmb = cmb_name,
+                    ),
+                    restriction_gate,
+                );
+                top_module.push_assign(format!("{} = {}", ppo_r, module_output));
+                top_module.push_wire(Wire::new_single(ppo_r));
+                top_module.remove_assign(&res_assign);
+            });
+    }
     pub fn atpg_model(&self) -> &Verilog {
         &self.atpg_model
     }
     pub fn equivalent_check(&self) -> Result<(Verilog, Verilog), VerilogError> {
-        let mut faulty_model = self.atpg_model.clone();
+        let mut faulty_model = self.atpg_model().clone();
 
-        // build bs_ref and bs_imp
-        // replace bs_imp's c2 gate with c2_imp
-        for fault in self.cfg_equivalent_check() {
-            let c_name = if fault.sa_value() {
-                self.c3_name()
-            } else {
-                self.c2_name()
-            };
-            let c_imp = faulty_model.module_by_name_mut(c_name.as_str()).unwrap();
-            *c_imp = c_imp.insert_stuck_at_fault(c_name.as_str(), fault)?;
-        }
+        let ud_fault = self.cfg_equivalent_check().get(0).unwrap();
+        let dt_fault = self.cfg_equivalent_check().get(1).unwrap();
 
-        Ok((self.atpg_model.clone(), faulty_model))
+        let c2_imp = faulty_model
+            .module_by_name_mut(self.c2_name().as_str())
+            .unwrap();
+        *c2_imp = c2_imp.insert_stuck_at_fault(self.c2_name().as_str(), ud_fault)?;
+        *c2_imp = c2_imp.insert_stuck_at_fault(self.c2_name().as_str(), dt_fault)?;
+        let c3_imp = faulty_model
+            .module_by_name_mut(self.c3_name().as_str())
+            .unwrap();
+        *c3_imp = c3_imp.insert_stuck_at_fault(self.c3_name().as_str(), dt_fault)?;
+
+        Ok((self.atpg_model().clone(), faulty_model))
     }
 }
 impl TopModule for DiExpansionATPGModel {
@@ -212,7 +264,7 @@ impl DiExpansionModelTrait for DiExpansionATPGModel {
 }
 gen_configured_trait!(DiExpansionATPGModel, de_model);
 impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
-    type Error = crate::verilog::VerilogError;
+    type Error = crate::time_expansion::ExpansionConfigError;
     /// insert restricted value gates for generating atpg model
     fn try_from(de_model: DiExpansionModel) -> Result<Self, Self::Error> {
         let mut atpg_model = Verilog::default();
@@ -220,80 +272,81 @@ impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
         let mut c1_module = de_model.c1_module().clone();
         let c2_module = de_model.c2_module().clone();
         let c3_module = de_model.c3_module().clone();
-
-        for ec_fault in de_model.cfg_equivalent_check().iter() {
-            // gen observable wire in c1 for restriction
-            let observable_port =
-                c1_module.add_observation_point(ec_fault.location(), ec_fault.sa_value())?;
-
-            // take restriction wire from c1's observable port
-            let restriction_wire = observable_port.clone();
-            top_module.push_wire(Wire::new_single(observable_port.clone()));
-            let c1_gate = top_module
-                .gate_mut_by_name(DiExpansionModel::c1_gate_name())
-                .unwrap();
-            c1_gate.push_port(PortWire::Wire(
-                observable_port.clone(),
-                restriction_wire.clone(),
-            ));
-
-            let restricted_cmb_gate = de_model
-                .top_module()
-                .gate_by_name(if ec_fault.sa_value() {
-                    DiExpansionModel::c3_gate_name()
-                } else {
-                    DiExpansionModel::c2_gate_name()
-                })
-                .unwrap();
-            let restricted_assigns = restricted_cmb_gate
-                .ports()
-                .iter()
-                .filter_map(|port_wire| {
-                    top_module
-                        .assigns()
-                        .iter()
-                        .find(|assign| assign.ends_with(port_wire.wire()))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-
-            restricted_assigns
-                .into_iter()
-                .enumerate()
-                .for_each(|(i, res_assign)| {
-                    let mut res_out = res_assign.split('=').map(|s| s.trim().to_string());
-                    let top_output = res_out.next().unwrap();
-                    let module_output = res_out.next().unwrap();
-                    let ppo_r = format!(
-                        "{}_{}_{}",
-                        module_output,
-                        ec_fault.location().replace("/", "_"),
-                        ec_fault.slow_to()
-                    );
-                    let mut restriction_gate = Gate::default();
-                    *restriction_gate.name_mut() =
-                        String::from(if ec_fault.sa_value() { "AN2" } else { "OR2" });
-                    {
-                        use crate::verilog::PortWire::Wire;
-                        restriction_gate
-                            .push_port(Wire(String::from('A'), restriction_wire.clone()));
-                        restriction_gate.push_port(Wire(String::from('B'), ppo_r.clone()));
-                        restriction_gate.push_port(Wire(String::from('Z'), top_output));
-                    }
-                    top_module.push_gate(
-                        format!(
-                            "R{}_{}_{}",
-                            i + 1,
-                            ec_fault.location().replace("/", "_"),
-                            ec_fault.slow_to()
-                        ),
-                        restriction_gate,
-                    );
-                    top_module.push_assign(format!("{} = {}", ppo_r, module_output));
-                    top_module.push_wire(Wire::new_single(ppo_r));
-                    top_module.remove_assign(&res_assign);
-                });
+        if de_model.cfg_equivalent_check().len() < 2 {
+            return Err(ExpansionConfigError::ConfigIsUnsatisfied(format!(
+                "Faults' count must be 2, but it's {}",
+                de_model.cfg_equivalent_check().len()
+            )));
         }
+        let ud_fault: &crate::verilog::fault::Fault =
+            de_model.cfg_equivalent_check().get(0).unwrap();
+        let dt_fault: &crate::verilog::fault::Fault =
+            de_model.cfg_equivalent_check().get(1).unwrap();
+
+        let ud_observable_port =
+            c1_module.add_observation_point(ud_fault.location(), ud_fault.sa_value())?;
+        let dt_observable_port =
+            c1_module.add_observation_point(dt_fault.location(), dt_fault.sa_value())?;
+
+        // take restriction wire from c1's observable port
+        let ud_restriction_wire = Wire::new_single(ud_observable_port.clone());
+        let dt_restriction_wire = Wire::new_single(dt_observable_port.clone());
+        top_module.push_wire(ud_restriction_wire.clone());
+        top_module.push_wire(dt_restriction_wire.clone());
+        let c1_gate = top_module
+            .gate_mut_by_name(DiExpansionModel::c1_gate_name())
+            .unwrap();
+        c1_gate.push_port(PortWire::Wire(
+            ud_observable_port,
+            ud_restriction_wire.name().to_string(),
+        ));
+        c1_gate.push_port(PortWire::Wire(
+            dt_observable_port,
+            dt_restriction_wire.name().to_string(),
+        ));
+
+        let c2_gate = de_model
+            .top_module()
+            .gate_by_name(DiExpansionModel::c2_gate_name())
+            .unwrap();
+        let c3_gate = de_model
+            .top_module()
+            .gate_by_name(DiExpansionModel::c3_gate_name())
+            .unwrap();
+
+        // ud_fault, which will be injected c2
+        DiExpansionATPGModel::insert_restricted_gates(
+            &mut top_module,
+            c2_gate.ports(),
+            &ud_restriction_wire,
+            ud_fault,
+            false,
+            "c2",
+        );
+        DiExpansionATPGModel::insert_restricted_gates(
+            &mut top_module,
+            c3_gate.ports(),
+            &ud_restriction_wire,
+            ud_fault,
+            true,
+            "c3",
+        );
+        DiExpansionATPGModel::insert_restricted_gates(
+            &mut top_module,
+            c2_gate.ports(),
+            &dt_restriction_wire,
+            dt_fault,
+            false,
+            "c2",
+        );
+        DiExpansionATPGModel::insert_restricted_gates(
+            &mut top_module,
+            c3_gate.ports(),
+            &dt_restriction_wire,
+            dt_fault,
+            false,
+            "c3",
+        );
 
         atpg_model.push_module(top_module);
         atpg_model.push_module(c1_module);
@@ -308,7 +361,7 @@ impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
 }
 impl NetlistSerializer for DiExpansionATPGModel {
     fn gen(&self) -> String {
-        self.atpg_model.gen()
+        self.atpg_model().gen()
     }
 }
 
@@ -318,6 +371,7 @@ mod test {
     use crate::time_expansion::di_expansion_model::{DiExpansionATPGModel, DiExpansionModel};
     use crate::time_expansion::time_expansion_model::BroadSideExpansionModel;
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
+    use std::convert::TryFrom;
 
     fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
         ConfiguredModel::try_from(ExpansionConfig::from_file("expansion.conf")?)
