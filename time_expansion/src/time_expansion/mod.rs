@@ -1,9 +1,10 @@
+use std::convert::TryFrom;
+
 use crate::gen_configured_trait;
 use crate::time_expansion::config::{
     ConfiguredTrait, ExpansionConfig, ExpansionConfigError, FFDefinition,
 };
 use crate::verilog::{Gate, Module, Verilog, Wire};
-use std::convert::TryFrom;
 
 pub mod config;
 pub mod di_expansion_model;
@@ -18,6 +19,7 @@ pub struct ConfiguredModel {
     cfg: ExpansionConfig,
     verilog: Verilog,
 }
+
 impl ConfiguredModel {
     pub fn cfg(&self) -> &ExpansionConfig {
         &self.cfg
@@ -49,6 +51,7 @@ impl TopModule for ConfiguredModel {
         self.verilog.module_by_name(self.cfg_top_module()).unwrap()
     }
 }
+
 impl TryFrom<ExpansionConfig> for ConfiguredModel {
     type Error = ExpansionConfigError;
     fn try_from(cfg: ExpansionConfig) -> Result<Self, Self::Error> {
@@ -69,6 +72,7 @@ pub struct ExtractedCombinationalPartModel {
     pseudo_primary_outputs: Vec<Wire>,
     pseudo_primary_ios: Vec<(Wire, Wire)>,
 }
+
 impl ExtractedCombinationalPartModel {
     pub fn configured_model(&self) -> &ConfiguredModel {
         &self.configured_model
@@ -92,6 +96,7 @@ impl ExtractedCombinationalPartModel {
         &self.pseudo_primary_ios
     }
 }
+
 impl TopModule for ExtractedCombinationalPartModel {
     fn top_module(&self) -> &Module {
         self.configured_model.top_module()
@@ -184,10 +189,11 @@ impl From<ConfiguredModel> for ExtractedCombinationalPartModel {
 
 #[cfg(test)]
 mod test {
+    use std::convert::TryFrom;
+
     use crate::time_expansion::config::{ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
     use crate::verilog::netlist_serializer::NetlistSerializer;
-    use std::convert::TryFrom;
 
     fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
         ConfiguredModel::try_from(ExpansionConfig::from_file("expansion.conf")?)

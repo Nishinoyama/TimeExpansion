@@ -1,3 +1,6 @@
+use std::collections::btree_set::BTreeSet;
+use std::convert::TryFrom;
+
 use crate::gen_configured_trait;
 use crate::time_expansion::config::{ConfiguredTrait, ExpansionConfigError};
 use crate::time_expansion::time_expansion_model::{BroadSideExpansionModel, TimeExpansionModel};
@@ -5,8 +8,6 @@ use crate::time_expansion::{ExtractedCombinationalPartModel, TopModule};
 use crate::verilog::fault::Fault;
 use crate::verilog::netlist_serializer::NetlistSerializer;
 use crate::verilog::{Gate, Module, PortWire, Verilog, VerilogError, Wire};
-use std::collections::btree_set::BTreeSet;
-use std::convert::TryFrom;
 
 pub trait DiExpansionModelTrait: TimeExpansionModel {
     fn c3_suffix() -> &'static str {
@@ -27,6 +28,7 @@ pub struct DiExpansionModel {
     combinational_part_model: ExtractedCombinationalPartModel,
     expanded_model: Verilog,
 }
+
 impl DiExpansionModel {
     pub fn expanded_model(&self) -> &Verilog {
         &self.expanded_model
@@ -40,6 +42,7 @@ impl TopModule for DiExpansionModel {
             .unwrap()
     }
 }
+
 impl TimeExpansionModel for DiExpansionModel {
     fn c1_module(&self) -> &Module {
         self.expanded_model()
@@ -58,6 +61,7 @@ impl TimeExpansionModel for DiExpansionModel {
         self.top_module().outputs()
     }
 }
+
 impl DiExpansionModelTrait for DiExpansionModel {
     fn c3_module(&self) -> &Module {
         self.expanded_model()
@@ -65,6 +69,7 @@ impl DiExpansionModelTrait for DiExpansionModel {
             .unwrap()
     }
 }
+
 impl From<BroadSideExpansionModel> for DiExpansionModel {
     /// Generates board side time expansion model from full scan designed circuitry module.
     /// if not `use_primary_io`, primary inputs will be restricted and primary outputs will be masked.
@@ -158,6 +163,7 @@ pub struct DiExpansionATPGModel {
     de_model: DiExpansionModel,
     atpg_model: Verilog,
 }
+
 impl DiExpansionATPGModel {
     pub fn insert_restricted_gates(
         top_module: &mut Module,
@@ -236,11 +242,13 @@ impl DiExpansionATPGModel {
         Ok((self.atpg_model().clone(), faulty_model))
     }
 }
+
 impl TopModule for DiExpansionATPGModel {
     fn top_module(&self) -> &Module {
         self.de_model.top_module()
     }
 }
+
 impl TimeExpansionModel for DiExpansionATPGModel {
     fn c1_module(&self) -> &Module {
         self.de_model.c1_module()
@@ -255,6 +263,7 @@ impl TimeExpansionModel for DiExpansionATPGModel {
         self.de_model.top_outputs()
     }
 }
+
 impl DiExpansionModelTrait for DiExpansionATPGModel {
     fn c3_module(&self) -> &Module {
         self.atpg_model()
@@ -359,6 +368,7 @@ impl TryFrom<DiExpansionModel> for DiExpansionATPGModel {
         })
     }
 }
+
 impl NetlistSerializer for DiExpansionATPGModel {
     fn gen(&self) -> String {
         self.atpg_model().gen()
@@ -367,30 +377,35 @@ impl NetlistSerializer for DiExpansionATPGModel {
 
 #[cfg(test)]
 mod test {
+    use std::convert::TryFrom;
+
     use crate::time_expansion::config::{ExpansionConfig, ExpansionConfigError};
     use crate::time_expansion::di_expansion_model::{DiExpansionATPGModel, DiExpansionModel};
     use crate::time_expansion::time_expansion_model::BroadSideExpansionModel;
     use crate::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
-    use std::convert::TryFrom;
 
     fn test_configured_model() -> Result<ConfiguredModel, ExpansionConfigError> {
         ConfiguredModel::try_from(ExpansionConfig::from_file("expansion.conf")?)
     }
+
     fn test_di_expansion_model() -> Result<DiExpansionModel, ExpansionConfigError> {
         Ok(DiExpansionModel::from(BroadSideExpansionModel::from(
             ExtractedCombinationalPartModel::from(test_configured_model()?),
         )))
     }
+
     #[test]
     fn di_expansion_model() -> Result<(), ExpansionConfigError> {
         let _bsd = test_di_expansion_model()?;
         Ok(())
     }
+
     #[test]
     fn di_expansion_atpg_model() -> Result<(), ExpansionConfigError> {
         let _dam = DiExpansionATPGModel::try_from(test_di_expansion_model()?)?;
         Ok(())
     }
+
     #[test]
     fn di_expansion_equivalent_check() -> Result<(), ExpansionConfigError> {
         let dam = DiExpansionATPGModel::try_from(test_di_expansion_model()?)?;

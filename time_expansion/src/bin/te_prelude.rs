@@ -1,3 +1,8 @@
+use std::convert::TryFrom;
+use std::env::args;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+
 use kyiw_time_expansion::time_expansion::config::*;
 use kyiw_time_expansion::time_expansion::di_expansion_model::{
     DiExpansionATPGModel, DiExpansionModel,
@@ -5,10 +10,6 @@ use kyiw_time_expansion::time_expansion::di_expansion_model::{
 use kyiw_time_expansion::time_expansion::time_expansion_model::BroadSideExpansionModel;
 use kyiw_time_expansion::time_expansion::{ConfiguredModel, ExtractedCombinationalPartModel};
 use kyiw_time_expansion::verilog::netlist_serializer::NetlistSerializer;
-use std::convert::TryFrom;
-use std::env::args;
-use std::fs::File;
-use std::io::{BufWriter, Write};
 
 #[allow(unused_must_use)]
 fn main() {

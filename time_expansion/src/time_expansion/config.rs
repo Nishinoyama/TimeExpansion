@@ -1,13 +1,15 @@
-use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
-use crate::verilog::fault::Fault;
-use crate::verilog::{Gate, ModuleError, PortWire, Verilog, VerilogError};
-use regex::Regex;
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::iter::Enumerate;
 use std::option::Option::Some;
+
+use regex::Regex;
+
+use crate::time_expansion::config::ExpansionMethod::{Broadside, SkewedLoad};
+use crate::verilog::fault::Fault;
+use crate::verilog::{Gate, ModuleError, PortWire, Verilog, VerilogError};
 
 #[macro_export]
 macro_rules! gen_configured_trait {
@@ -537,7 +539,7 @@ mod test {
                         String::from("TI"),
                         String::from("TE"),
                         String::from("CP"),
-                        String::from("CD")
+                        String::from("CD"),
                     ],
                 },
                 FFDefinition {
@@ -565,7 +567,7 @@ mod test {
             InvDefinition {
                 name: String::from("IV"),
                 input: String::from("A"),
-                output: String::from("Z")
+                output: String::from("Z"),
             }
         );
         Ok(())

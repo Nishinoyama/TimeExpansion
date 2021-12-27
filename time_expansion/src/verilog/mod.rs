@@ -1,17 +1,18 @@
-mod ast;
-pub mod fault;
-pub mod netlist_serializer;
-
-use crate::verilog::ast::parser::{ParseError, Parser};
-use crate::verilog::ast::token::Lexer;
-use crate::verilog::fault::Fault;
-use crate::verilog::netlist_serializer::NetlistSerializer;
 use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::collections::btree_set::BTreeSet;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+
+use crate::verilog::ast::parser::{ParseError, Parser};
+use crate::verilog::ast::token::Lexer;
+use crate::verilog::fault::Fault;
+use crate::verilog::netlist_serializer::NetlistSerializer;
+
+mod ast;
+pub mod fault;
+pub mod netlist_serializer;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Verilog {
