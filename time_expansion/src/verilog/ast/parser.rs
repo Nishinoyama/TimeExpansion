@@ -46,7 +46,7 @@ impl Parser {
         if let Some(token) = self.next() {
             Ok(token)
         } else {
-            Err(ParseError::from(ParseErrorType::NoToken))
+            Err(ParseError::from(ParseError::NoToken))
         }
     }
     fn expect_reserved_token(&mut self, name: &str) -> Result<Token, ParseError> {
@@ -55,7 +55,7 @@ impl Parser {
         if token == expected_token {
             Ok(token)
         } else {
-            Err(ParseError::from(ParseErrorType::UnexpectedToken(
+            Err(ParseError::from(ParseError::UnexpectedToken(
                 expected_token,
                 token,
             )))
@@ -66,7 +66,7 @@ impl Parser {
         if matches!(token, Token::Number(_)) {
             Ok(token)
         } else {
-            Err(ParseError::from(ParseErrorType::UnexpectedToken(
+            Err(ParseError::from(ParseError::UnexpectedToken(
                 Token::Number(String::from("{number}")),
                 token,
             )))
@@ -77,7 +77,7 @@ impl Parser {
         if matches!(token, Token::Identifier(_)) {
             Ok(token)
         } else {
-            Err(ParseError::from(ParseErrorType::UnexpectedToken(
+            Err(ParseError::from(ParseError::UnexpectedToken(
                 Token::Identifier(String::from("{identifier}")),
                 token,
             )))
@@ -265,18 +265,7 @@ impl Parser {
 }
 
 #[derive(Debug)]
-pub struct ParseError {
-    error_type: ParseErrorType,
-}
-
-impl From<ParseErrorType> for ParseError {
-    fn from(error_type: ParseErrorType) -> Self {
-        Self { error_type }
-    }
-}
-
-#[derive(Debug)]
-pub enum ParseErrorType {
+pub enum ParseError {
     NoToken,
     /// .1 [`Token`] is expected, but .2 [`Token`] gained.
     UnexpectedToken(Token, Token),

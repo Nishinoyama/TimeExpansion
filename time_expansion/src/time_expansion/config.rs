@@ -492,7 +492,7 @@ pub enum ExpansionConfigVerificationError {
     /// ff option must be specified at least 1
     UnspecifiedFFGate,
     /// inv option must be specified in the configuration file
-    /// or cannot analyze the following NOT gate type specified in inv option."
+    /// or cannot analyze the following NOT gate type specified in inv option.
     UnspecifiedInvGate,
     /// top-module name must be specified
     UnspecifiedTopModule,
